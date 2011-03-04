@@ -40,6 +40,7 @@
 #endif
 
 #define VIDC_SOUND_CLOCK	(250000)
+#define VIDC_SOUND_CLOCK_EXT	(176400)
 
 /*
  * When using SERIAL SOUND mode (external DAC), the number of physical
@@ -192,28 +193,43 @@ static unsigned int vidc_audio_set_format(int dev, unsigned int fmt)
 	return vidc_audio_format;
 }
 
+#define my_abs(i) ((i)<0 ? -(i) : (i))
+
 static int vidc_audio_set_speed(int dev, int rate)
 {
 	if (rate) {
-		unsigned int hwctrl, hwrate;
+		unsigned int hwctrl, hwrate, hwrate_ext, rate_int, rate_ext;
 		unsigned int newsize, new2size;
 
-		/*
-		 * If we have selected 44.1kHz, use the DAC clock.
-		 */
-		if (0 && rate == 44100) {
-			hwctrl = 0x00000002;
+		hwctrl = 0x00000003;
+
+		/* Using internal clock */
+		hwrate = (((VIDC_SOUND_CLOCK * 2) / rate) + 1) >> 1;
+		if (hwrate < 3)
 			hwrate = 3;
+		if (hwrate > 255)
+			hwrate = 255;
+
+		/* Using exernal clock */
+		hwrate_ext = (((VIDC_SOUND_CLOCK_EXT * 2) / rate) + 1) >> 1;
+		if (hwrate_ext < 3)
+			hwrate_ext = 3;
+		if (hwrate_ext > 255)
+			hwrate_ext = 255;
+
+		rate_int = VIDC_SOUND_CLOCK / hwrate;
+		rate_ext = VIDC_SOUND_CLOCK_EXT / hwrate_ext;
+
+		/* Chose between external and internal clock */
+		if (my_abs(rate_ext-rate) < my_abs(rate_int-rate)) {
+			/*printk("VIDC: external %d %d %d\n", rate, rate_ext, hwrate_ext);*/
+			hwrate=hwrate_ext;
+			hwctrl=0x00000002;
+			rate=rate_ext;
 		} else {
-			hwctrl = 0x00000003;
-
-			hwrate = (((VIDC_SOUND_CLOCK * 2) / rate) + 1) >> 1;
-			if (hwrate < 3)
-				hwrate = 3;
-			if (hwrate > 255)
-				hwrate = 255;
-
-			rate = VIDC_SOUND_CLOCK / hwrate;
+			/*printk("VIDC: internal %d %d %d\n", rate, rate_int, hwrate);*/
+			hwctrl=0x00000003;
+			rate=rate_int;
 		}
 
 		vidc_writel(0xb0000000 | (hwrate - 2));
@@ -225,13 +241,14 @@ static int vidc_audio_set_speed(int dev, int rate)
 		if (newsize > 4096)
 			newsize = 4096;
 		for (new2size = 128; new2size < newsize; new2size <<= 1);
-			if (new2size - newsize > newsize - (new2size >> 1))
-				new2size >>= 1;
+		if (new2size - newsize > newsize - (new2size >> 1))
+			new2size >>= 1;
 		if (new2size > 4096) {
 			printk(KERN_ERR "VIDC: error: dma buffer (%d) %d > 4K\n",
 				newsize, new2size);
 			new2size = 4096;
 		}
+		/*printk("VIDC: dma size %d\n", new2size);*/
 		dma_bufsize = new2size;
 		vidc_audio_rate = rate;
 	}

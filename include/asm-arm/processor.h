@@ -43,6 +43,7 @@ typedef unsigned long mm_segment_t;		/* domain register	*/
 #include <asm/atomic.h>
 #include <asm/ptrace.h>
 #include <asm/arch/memory.h>
+#include <asm/elf.h>
 #include <asm/proc/processor.h>
 #include <asm/types.h>
 

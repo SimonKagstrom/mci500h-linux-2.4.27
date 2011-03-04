@@ -65,15 +65,18 @@ au1000_ss-objs-$(CONFIG_PCMCIA_PB1X00)		+= au1000_pb1x00.o
 au1000_ss-objs-$(CONFIG_PCMCIA_DB1X00)		+= au1000_db1x00.o
 au1000_ss-objs-$(CONFIG_PCMCIA_XXS1500) 	+= au1000_xxs1500.o
 
+obj-$(CONFIG_PCMCIA_CLPS6700)	+= clps6700.o
 obj-$(CONFIG_PCMCIA_SA1100)	+= sa1100_cs.o
-obj-$(CONFIG_PCMCIA_M8XX)	+= m8xx_pcmcia.o
 obj-$(CONFIG_PCMCIA_SIBYTE)	+= sibyte_generic.o
 
 sa1100_cs-objs-y				:= sa1100_generic.o
+sa1100_cs-objs-$(CONFIG_SA1100_ADSAGC)		+= sa1100_graphicsmaster.o sa1111_generic.o
 sa1100_cs-objs-$(CONFIG_SA1100_ADSBITSY)	+= sa1100_adsbitsy.o sa1111_generic.o
+sa1100_cs-objs-$(CONFIG_SA1100_ADSBITSYPLUS)	+= sa1100_adsbitsyplus.o sa1111_generic.o
 sa1100_cs-objs-$(CONFIG_SA1100_ASSABET)		+= sa1100_assabet.o
 sa1100_cs-objs-$(CONFIG_ASSABET_NEPONSET)	+= sa1100_neponset.o sa1111_generic.o
 sa1100_cs-objs-$(CONFIG_SA1100_BADGE4)		+= sa1100_badge4.o sa1111_generic.o
+sa1100_cs-objs-$(CONFIG_SA1100_CONSUS)		+= sa1100_neponset.o sa1111_generic.o
 sa1100_cs-objs-$(CONFIG_SA1100_CERF)		+= sa1100_cerf.o
 sa1100_cs-objs-$(CONFIG_SA1100_FLEXANET)	+= sa1100_flexanet.o
 sa1100_cs-objs-$(CONFIG_SA1100_FREEBIRD)	+= sa1100_freebird.o

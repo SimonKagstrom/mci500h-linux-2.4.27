@@ -27,12 +27,22 @@ obj-$(CONFIG_BLK_DEV_LOOP)	+= loop.o
 obj-$(CONFIG_BLK_DEV_PS2)	+= ps2esdi.o
 obj-$(CONFIG_BLK_DEV_XD)	+= xd.o
 obj-$(CONFIG_BLK_CPQ_DA)	+= cpqarray.o
-obj-$(CONFIG_BLK_CPQ_CISS_DA)  += cciss.o
+obj-$(CONFIG_BLK_CPQ_CISS_DA)	+= cciss.o
 obj-$(CONFIG_BLK_DEV_DAC960)	+= DAC960.o
 obj-$(CONFIG_BLK_DEV_UMEM)	+= umem.o
 obj-$(CONFIG_BLK_DEV_NBD)	+= nbd.o
 obj-$(CONFIG_BLK_DEV_SX8)	+= sx8.o
 
 subdir-$(CONFIG_PARIDE) += paride
+subdir-$(CONFIG_PNX0106_SD_BLOCK) += sd
+obj-$(CONFIG_PNX0106_SD_BLOCK) += sd/sddrv.o
+
+obj-$(CONFIG_PNX0106_SDSPI_BLOCK) += sdspi.o
+
+ifeq ($(CONFIG_ARCH_ACORN),y)
+mod-subdirs	+= ../acorn/block
+subdir-y	+= ../acorn/block
+obj-y		+= ../acorn/block/acorn-block.o
+endif
 
 include $(TOPDIR)/Rules.make

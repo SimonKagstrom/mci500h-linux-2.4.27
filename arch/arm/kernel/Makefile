@@ -45,12 +45,13 @@ no-irq-arch	:= $(CONFIG_ARCH_INTEGRATOR) $(CONFIG_ARCH_CLPS711X) \
 		   $(CONFIG_FOOTBRIDGE) $(CONFIG_ARCH_EBSA110) \
 		   $(CONFIG_ARCH_SA1100) $(CONFIG_ARCH_CAMELOT) \
 		   $(CONFIG_ARCH_MX1ADS) $(CONFIG_ARCH_OMAHA) \
-		   $(CONFIG_ARCH_AT91RM9200)
+		   $(CONFIG_ARCH_AT91RM9200) $(CONFIG_ARCH_SSA)
 
 ifneq ($(findstring y,$(no-irq-arch)),y)
   obj-y		+= irq-arch.o
 endif
 
+obj-$(CONFIG_ARCH_PNX0106) += fiq.o
 obj-$(CONFIG_ARCH_ACORN) += ecard.o fiq.o time-acorn.o
 obj-$(CONFIG_ARCH_CLPS7500) += time-acorn.o
 obj-$(CONFIG_ARCH_RISCSTATION) += time-acorn.o

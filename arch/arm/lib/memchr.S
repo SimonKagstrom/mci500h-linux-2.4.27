@@ -13,7 +13,7 @@
 #include <asm/assembler.h>
 
 	.text
-	.align	5
+	.align	4
 ENTRY(memchr)
 1:	subs	r2, r2, #1
 	bmi	2f

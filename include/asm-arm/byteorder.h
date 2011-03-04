@@ -18,6 +18,42 @@
 
 #include <asm/types.h>
 
+/*
+   Although the ARM can do a 32bit endian swap in 4 instructions, gcc
+   doesn't _quite_ get it yet... instead we get 5 as the initial exor
+   and rotate is split into 2 steps.
+*/
+static __inline__ __const__ __u32 ___arch__swab32(__u32 x)
+{
+    unsigned int t;
+        
+    t = x ^ ((x << 16) | (x >> 16));    /* eor  r1, r0, r0, ror #16 */
+    t &= ~0x00ff0000;                   /* bic  r1, r1, #0x00FF0000 */
+    x = (x << 24) | (x >> 8);           /* mov  r0, r0, ror #8      */
+    x ^= (t >> 8);                      /* eor  r0, r0, r1, lsr #8  */
+
+    return x;
+}
+
+/*
+   For 16bit values, the ARM can endian reverse in 3 instructions _if_ the
+   the upper 16 bits of the input register can always be assumed to be zero.
+   If not, then 4 instructions are needed (which gcc correctly generates).
+*/
+static __inline__ __const__ __u16 ___arch__swab16(__u16 x)
+{
+    unsigned int t;
+
+    t = (unsigned int) x << 8;
+    t &= ~0x00ff0000;
+    x = t | (unsigned int) x >> 8;
+    
+    return x;
+}
+
+#define __arch__swab32(x) ___arch__swab32(x)
+#define __arch__swab16(x) ___arch__swab16(x)
+
 #if !defined(__STRICT_ANSI__) || defined(__KERNEL__)
 #  define __BYTEORDER_HAS_U64__
 #  define __SWAB_64_THRU_32__

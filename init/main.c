@@ -74,6 +74,15 @@ extern int irda_device_init(void);
 #include <asm/smp.h>
 #endif
 
+#ifdef CONFIG_ARCH_SSA
+#include <asm/hardware.h>
+#endif
+
+#ifdef CONFIG_ARCH_PNX0106
+#include <asm/hardware.h>
+#endif
+
+
 /*
  * Versions of gcc older than that listed below may actually compile
  * and link okay, but the end product can have subtle run time bugs.
@@ -164,6 +173,42 @@ unsigned long loops_per_jiffy = (1<<12);
 
 void __init calibrate_delay(void)
 {
+#if (defined CONFIG_ARCH_SSA) && 1
+	
+	/*
+           For SAA7752 devices, BogoMIPS always seems to end up being
+           very close to half the CPU core clock speed in MHz. (Note: This
+           has been tested for CPU_MHZ = (HCLK_MHZ * 2) but
+           CPU_MHZ = (HCLK_MHZ * 3) but may not hold true for other ratios).
+           
+           Making use of this fact allows us to save approx 0.12 seconds
+           from the boot time. Whoopee !!
+	*/
+
+	if (cpuclkhz != 0) {
+		loops_per_jiffy = (cpuclkhz / (4 * HZ));	/* BogoMIPS == (CPU_MHZ / 2) is true if CPU:HCLK is 2:1 or 3:1  */
+		printk ("Delay loop calibration: %lu.%02lu BogoMIPS (precomputed)\n",
+			loops_per_jiffy/(500000/HZ), (loops_per_jiffy/(5000/HZ)) % 100);
+	}
+	else
+
+#elif (defined CONFIG_ARCH_PNX0106) && 1
+
+	/*
+	   For PNX0106 devices, (BogoMIPS ~= half CPU core clock MHz) rule 
+	   also seems to hold true. Tested for 1:1, 2:1, 3:1 and 5:1.
+	*/
+
+	if (cpuclkhz != 0) {
+		loops_per_jiffy = (cpuclkhz / (4 * HZ));	/* BogoMIPS == (CPU_MHZ / 2) */
+		printk ("Delay loop calibration: %lu.%02lu BogoMIPS (precomputed)\n",
+			loops_per_jiffy/(500000/HZ), (loops_per_jiffy/(5000/HZ)) % 100);
+	}
+	else
+
+#endif
+	{
+
 	unsigned long ticks, loopbit;
 	int lps_precision = LPS_PREC;
 
@@ -201,6 +246,8 @@ void __init calibrate_delay(void)
 	printk("%lu.%02lu BogoMIPS\n",
 		loops_per_jiffy/(500000/HZ),
 		(loops_per_jiffy/(5000/HZ)) % 100);
+
+	}
 }
 
 static int __init debug_kernel(char *str)
@@ -594,6 +641,8 @@ static int init(void * unused)
 
 	if (execute_command)
 		run_init_process(execute_command);
+
+	run_init_process("/linuxrc");		/* hack... */
 
 	run_init_process("/sbin/init");
 	run_init_process("/etc/init");

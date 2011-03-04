@@ -21,7 +21,7 @@ CFLAGS_seagate.o =   -DARBITRATE -DPARITY -DSEAGATE_USE_ASM
 
 O_TARGET := scsidrv.o
 
-export-objs	:= scsi_syms.o 53c700.o libata-core.o
+export-objs	:= scsi_syms.o 53c700.o scsi_error.o libata-core.o
 mod-subdirs	:= pcmcia ../acorn/scsi
 
 

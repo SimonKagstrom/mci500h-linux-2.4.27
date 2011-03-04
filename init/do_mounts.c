@@ -15,6 +15,7 @@
 #include <linux/minix_fs.h>
 #include <linux/ext2_fs.h>
 #include <linux/romfs_fs.h>
+#include <linux/squashfs_fs.h>
 #include <linux/cramfs_fs.h>
 
 #define BUILD_CRAMDISK
@@ -476,6 +477,7 @@ static int __init crd_load(int in_fd, int out_fd);
  * 	minix
  * 	ext2
  *	romfs
+ * 	squashfs
  *	cramfs
  * 	gzip
  */
@@ -486,6 +488,7 @@ identify_ramdisk_image(int fd, int start_block)
 	struct minix_super_block *minixsb;
 	struct ext2_super_block *ext2sb;
 	struct romfs_super_block *romfsb;
+ 	struct squashfs_super_block *squashfsb;
 	struct cramfs_super *cramfsb;
 	int nblocks = -1;
 	unsigned char *buf;
@@ -497,6 +500,7 @@ identify_ramdisk_image(int fd, int start_block)
 	minixsb = (struct minix_super_block *) buf;
 	ext2sb = (struct ext2_super_block *) buf;
 	romfsb = (struct romfs_super_block *) buf;
+ 	squashfsb = (struct squashfs_super_block *) buf;
 	cramfsb = (struct cramfs_super *) buf;
 	memset(buf, 0xe5, size);
 
@@ -532,6 +536,15 @@ identify_ramdisk_image(int fd, int start_block)
 		       "RAMDISK: cramfs filesystem found at block %d\n",
 		       start_block);
 		nblocks = (cramfsb->size + BLOCK_SIZE - 1) >> BLOCK_SIZE_BITS;
+		goto done;
+	}
+
+	/* squashfs is at block zero too */
+	if (squashfsb->s_magic == SQUASHFS_MAGIC) {
+		printk(KERN_NOTICE
+		       "RAMDISK: squashfs filesystem found at block %d\n",
+		       start_block);
+		nblocks = (squashfsb->bytes_used+BLOCK_SIZE-1)>>BLOCK_SIZE_BITS;
 		goto done;
 	}
 
@@ -888,7 +901,7 @@ static int __init initrd_load(void)
  */
 void prepare_namespace(void)
 {
-	int is_floppy = MAJOR(ROOT_DEV) == FLOPPY_MAJOR;
+	int is_floppy = MAJOR(ROOT_DEV) == FLOPPY_MAJOR || MAJOR(ROOT_DEV) == 31;
 #ifdef CONFIG_ALL_PPC
 	extern void arch_discover_root(void);
 	arch_discover_root();
@@ -951,6 +964,7 @@ static unsigned insize;  /* valid bytes in inbuf */
 static unsigned inptr;   /* index of next byte to be processed in inbuf */
 static unsigned outcnt;  /* bytes in output buffer */
 static int exit_code;
+static int unzip_error;
 static long bytes_out;
 static int crd_infd, crd_outfd;
 
@@ -998,13 +1012,17 @@ static void __init gzip_release(void **ptr)
 /* ===========================================================================
  * Fill the input buffer. This is called only when the buffer is empty
  * and at least one byte is really needed.
+ * Returning -1 does not guarantee that gunzip() will ever return.
  */
 static int __init fill_inbuf(void)
 {
 	if (exit_code) return -1;
 	
 	insize = read(crd_infd, inbuf, INBUFSIZ);
-	if (insize == 0) return -1;
+	if (insize == 0) {
+		error("RAMDISK: ran out of compressed data\n");
+		return -1;
+	}
 
 	inptr = 1;
 
@@ -1018,10 +1036,15 @@ static int __init fill_inbuf(void)
 static void __init flush_window(void)
 {
     ulg c = crc;         /* temporary variable */
-    unsigned n;
+    unsigned n, written;
     uch *in, ch;
     
-    write(crd_outfd, window, outcnt);
+    written = write(crd_outfd, window, outcnt);
+    if (written != outcnt && unzip_error == 0) {
+	printk(KERN_ERR "RAMDISK: incomplete write (%d != %d), "
+	       "only wrote %ld\n", written, outcnt, bytes_out);
+	unzip_error = 1;
+    }
     in = window;
     for (n = 0; n < outcnt; n++) {
 	    ch = *in++;
@@ -1036,6 +1059,7 @@ static void __init error(char *x)
 {
 	printk(KERN_ERR "%s", x);
 	exit_code = 1;
+	unzip_error = 1;
 }
 
 static int __init crd_load(int in_fd, int out_fd)
@@ -1064,6 +1088,8 @@ static int __init crd_load(int in_fd, int out_fd)
 	}
 	makecrc();
 	result = gunzip();
+	if (unzip_error)
+		result = 1;
 	kfree(inbuf);
 	kfree(window);
 	return result;

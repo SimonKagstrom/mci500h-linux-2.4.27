@@ -188,10 +188,10 @@ int strncmp(const char * cs,const char * ct,size_t count)
  */
 char * strchr(const char * s, int c)
 {
-	for(; *s != (char) c; ++s)
-		if (*s == '\0')
-			return NULL;
-	return (char *) s;
+	for(; *s != '\0'; ++s)
+		if (*s == (char) c)
+			return (char *) s;
+	return NULL;
 }
 #endif
 

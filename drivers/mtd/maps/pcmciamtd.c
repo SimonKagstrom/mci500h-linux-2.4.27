@@ -1,5 +1,5 @@
 /*
- * $Id: pcmciamtd.c,v 1.39 2003/01/06 17:51:38 spse Exp $
+ * $Id: pcmciamtd.c,v 1.48 2003/06/24 07:14:38 spse Exp $
  *
  * pcmciamtd.c - MTD driver for PCMCIA flash memory cards
  *
@@ -14,6 +14,7 @@
 #include <linux/module.h>
 #include <linux/slab.h>
 #include <linux/timer.h>
+#include <linux/init.h>
 #include <asm/io.h>
 #include <asm/system.h>
 
@@ -24,6 +25,7 @@
 #include <pcmcia/ds.h>
 
 #include <linux/mtd/map.h>
+#include <linux/mtd/mtd.h>
 
 #ifdef CONFIG_MTD_DEBUG
 static int debug = CONFIG_MTD_DEBUG_VERBOSE;
@@ -47,7 +49,7 @@ static const int debug = 0;
 
 
 #define DRIVER_DESC	"PCMCIA Flash memory card driver"
-#define DRIVER_VERSION	"$Revision: 1.39 $"
+#define DRIVER_VERSION	"$Revision: 1.48 $"
 
 /* Size of the PCMCIA address space: 26 bits = 64 MB */
 #define MAX_PCMCIA_ADDR	0x4000000
@@ -96,7 +98,7 @@ MODULE_PARM_DESC(buswidth, "Set buswidth (1=8 bit, 2=16 bit, default=2)");
 MODULE_PARM(mem_speed, "i");
 MODULE_PARM_DESC(mem_speed, "Set memory access speed in ns");
 MODULE_PARM(force_size, "i");
-MODULE_PARM_DESC(force_size, "Force size of card in MB (1-64)");
+MODULE_PARM_DESC(force_size, "Force size of card in MiB (1-64)");
 MODULE_PARM(setvpp, "i");
 MODULE_PARM_DESC(setvpp, "Set Vpp (0=Never, 1=On writes, 2=Always on, default=0)");
 MODULE_PARM(vpp, "i");
@@ -106,11 +108,13 @@ MODULE_PARM_DESC(mem_type, "Set Memory type (0=Flash, 1=RAM, 2=ROM, default=0)")
 
 
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2,5,69)
 static inline void cs_error(client_handle_t handle, int func, int ret)
 {
 	error_info_t err = { func, ret };
 	CardServices(ReportError, handle, &err);
 }
+#endif
 
 
 /* read/write{8,16} copy_{from,to} routines with window remapping to access whole card */
@@ -529,6 +533,7 @@ static void pcmciamtd_config(dev_link_t *link)
 
 	card_settings(dev, link, &new_name);
 
+	dev->pcmcia_map.phys = NO_XIP;
 	dev->pcmcia_map.read8 = pcmcia_read8_remap;
 	dev->pcmcia_map.read16 = pcmcia_read16_remap;
 	dev->pcmcia_map.copy_from = pcmcia_copy_from_remap;
@@ -539,7 +544,7 @@ static void pcmciamtd_config(dev_link_t *link)
 		dev->pcmcia_map.set_vpp = pcmciamtd_set_vpp;
 
 	/* Request a memory window for PCMCIA. Some architeures can map windows upto the maximum
-	   that PCMCIA can support (64Mb) - this is ideal and we aim for a window the size of the
+	   that PCMCIA can support (64MiB) - this is ideal and we aim for a window the size of the
 	   whole card - otherwise we try smaller windows until we succeed */
 
 	req.Attributes =  WIN_MEMORY_TYPE_CM | WIN_ENABLE;
@@ -552,7 +557,7 @@ static void pcmciamtd_config(dev_link_t *link)
 
 	do {
 		int ret;
-		DEBUG(2, "requesting window with size = %dKB memspeed = %d",
+		DEBUG(2, "requesting window with size = %dKiB memspeed = %d",
 		      req.Size >> 10, req.AccessSpeed);
 		link->win = (window_handle_t)link->handle;
 		ret = CardServices(RequestWindow, &link->win, &req);
@@ -560,7 +565,7 @@ static void pcmciamtd_config(dev_link_t *link)
 		if(ret) {
 			req.Size >>= 1;
 		} else {
-			DEBUG(2, "Got window of size %dKB", req.Size >> 10);
+			DEBUG(2, "Got window of size %dKiB", req.Size >> 10);
 			dev->win_size = req.Size;
 			break;
 		}
@@ -573,7 +578,7 @@ static void pcmciamtd_config(dev_link_t *link)
 		pcmciamtd_release((u_long)link);
 		return;
 	}
-	DEBUG(1, "Allocated a window of %dKB", dev->win_size >> 10);
+	DEBUG(1, "Allocated a window of %dKiB", dev->win_size >> 10);
 		
 	/* Get write protect status */
 	CS_CHECK(GetStatus, link->handle, &status);
@@ -642,21 +647,21 @@ static void pcmciamtd_config(dev_link_t *link)
 	}
 
 	dev->mtd_info = mtd;
-	mtd->module = THIS_MODULE;
+	mtd->owner = THIS_MODULE;
 
 	if(new_name) {
 		int size = 0;
 		char unit = ' ';
 		/* Since we are using a default name, make it better by adding in the
 		   size */
-		if(mtd->size < 1048576) { /* <1MB in size, show size in K */
+		if(mtd->size < 1048576) { /* <1MiB in size, show size in KiB */
 			size = mtd->size >> 10;
 			unit = 'K';
 		} else {
 			size = mtd->size >> 20;
 			unit = 'M';
 		}
-		snprintf(dev->mtd_name, sizeof(dev->mtd_name), "%d%cB %s", size, unit, "PCMCIA Memory card");
+		snprintf(dev->mtd_name, sizeof(dev->mtd_name), "%d%ciB %s", size, unit, "PCMCIA Memory card");
 	}
 
 	/* If the memory found is fits completely into the mapped PCMCIA window,
@@ -828,16 +833,20 @@ static dev_link_t *pcmciamtd_attach(void)
 }
 
 
+#if LINUX_VERSION_CODE > KERNEL_VERSION(2,5,68)
+static struct pcmcia_driver pcmciamtd_driver = {
+	.drv		= {
+		.name	= "pcmciamtd"
+	},
+	.attach		= pcmciamtd_attach,
+	.detach		= pcmciamtd_detach,
+	.owner		= THIS_MODULE
+};
+#endif
+
+
 static int __init init_pcmciamtd(void)
 {
-	servinfo_t serv;
-
-	info(DRIVER_DESC " " DRIVER_VERSION);
-	CardServices(GetCardServicesInfo, &serv);
-	if (serv.Revision != CS_RELEASE_CODE) {
-		err("Card Services release does not match!");
-		return -1;
-	}
 
 	if(buswidth && buswidth != 1 && buswidth != 2) {
 		info("bad buswidth (%d), using default", buswidth);
@@ -851,15 +860,24 @@ static int __init init_pcmciamtd(void)
 		info("bad mem_type (%d), using default", mem_type);
 		mem_type = 0;
 	}
+
+#if LINUX_VERSION_CODE > KERNEL_VERSION(2,5,68)
+	return pcmcia_register_driver(&pcmciamtd_driver);
+#else
 	register_pccard_driver(&dev_info, &pcmciamtd_attach, &pcmciamtd_detach);
 	return 0;
+#endif
 }
 
 
 static void __exit exit_pcmciamtd(void)
 {
 	DEBUG(1, DRIVER_DESC " unloading");
+#if LINUX_VERSION_CODE > KERNEL_VERSION(2,5,68)
+	pcmcia_unregister_driver(&pcmciamtd_driver);
+#else
 	unregister_pccard_driver(&dev_info);
+#endif
 
 	while(dev_list) {
 		dev_link_t *link = dev_list;

@@ -1,5 +1,5 @@
 
-# $Id: Config.in,v 1.74 2002/04/23 13:52:14 mag Exp $
+# $Id: Config.in,v 1.75 2003/05/23 11:38:29 dwmw2 Exp $
 
 mainmenu_option next_comment
 comment 'Memory Technology Devices (MTD)'
@@ -30,6 +30,7 @@ comment 'User Modules And Translation Layers'
    if [ "$CONFIG_NFTL" = "y" -o "$CONFIG_NFTL" = "m" ]; then
       bool '    Write support for NFTL (BETA)' CONFIG_NFTL_RW
    fi
+   dep_tristate '  INFTL (Inverse NAND Flash Translation Layer) support' CONFIG_INFTL $CONFIG_MTD
 
    source drivers/mtd/chips/Config.in
 

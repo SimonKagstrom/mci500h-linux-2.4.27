@@ -1,8 +1,7 @@
 /*
- * $Id: mtdchar.c,v 1.49 2003/01/24 12:02:58 dwmw2 Exp $
+ * $Id: mtdchar.c,v 1.54 2003/05/21 10:50:43 dwmw2 Exp $
  *
  * Character-device access to raw MTD devices.
- * Pure 2.4 version - compatibility cruft removed to mtdchar-compat.c
  *
  */
 
@@ -11,6 +10,9 @@
 #include <linux/module.h>
 #include <linux/mtd/mtd.h>
 #include <linux/slab.h>
+#include <linux/init.h>
+#include <linux/fs.h>
+#include <asm/uaccess.h>
 
 #ifdef CONFIG_DEVFS_FS
 #include <linux/devfs_fs_kernel.h>
@@ -18,8 +20,8 @@ static void mtd_notify_add(struct mtd_info* mtd);
 static void mtd_notify_remove(struct mtd_info* mtd);
 
 static struct mtd_notifier notifier = {
-	add:	mtd_notify_add,
-	remove:	mtd_notify_remove,
+	.add	= mtd_notify_add,
+	.remove	= mtd_notify_remove,
 };
 
 static devfs_handle_t devfs_dir_handle;
@@ -125,15 +127,11 @@ static ssize_t mtd_read(struct file *file, char *buf, size_t count,loff_t *ppos)
 	int ret=0;
 	int len;
 	char *kbuf;
-	loff_t pos = *ppos;
 	
 	DEBUG(MTD_DEBUG_LEVEL0,"MTD_read\n");
 
-	if (pos < 0 || pos > mtd->size)
-		return 0;
-
-	if (count > mtd->size - pos)
-		count = mtd->size - pos;
+	if (*ppos + count > mtd->size)
+		count = mtd->size - *ppos;
 
 	if (!count)
 		return 0;
@@ -150,9 +148,9 @@ static ssize_t mtd_read(struct file *file, char *buf, size_t count,loff_t *ppos)
 		if (!kbuf)
 			return -ENOMEM;
 		
-		ret = MTD_READ(mtd, pos, len, &retlen, kbuf);
+		ret = MTD_READ(mtd, *ppos, len, &retlen, kbuf);
 		if (!ret) {
-			pos += retlen;
+			*ppos += retlen;
 			if (copy_to_user(buf, kbuf, retlen)) {
 			        kfree(kbuf);
 				return -EFAULT;
@@ -171,8 +169,6 @@ static ssize_t mtd_read(struct file *file, char *buf, size_t count,loff_t *ppos)
 		kfree(kbuf);
 	}
 	
-	*ppos = pos;
-	
 	return total_retlen;
 } /* mtd_read */
 
@@ -182,18 +178,17 @@ static ssize_t mtd_write(struct file *file, const char *buf, size_t count,loff_t
 	char *kbuf;
 	size_t retlen;
 	size_t total_retlen=0;
-	loff_t pos = *ppos;
 	int ret=0;
 	int len;
 
 	DEBUG(MTD_DEBUG_LEVEL0,"MTD_write\n");
 	
-	if (pos < 0 || pos >= mtd->size)
+	if (*ppos == mtd->size)
 		return -ENOSPC;
-
-	if (count > mtd->size - pos)
-		count = mtd->size - pos;
 	
+	if (*ppos + count > mtd->size)
+		count = mtd->size - *ppos;
+
 	if (!count)
 		return 0;
 
@@ -214,9 +209,9 @@ static ssize_t mtd_write(struct file *file, const char *buf, size_t count,loff_t
 			return -EFAULT;
 		}
 		
-	        ret = (*(mtd->write))(mtd, pos, len, &retlen, kbuf);
+	        ret = (*(mtd->write))(mtd, *ppos, len, &retlen, kbuf);
 		if (!ret) {
-			pos += retlen;
+			*ppos += retlen;
 			total_retlen += retlen;
 			count -= retlen;
 			buf += retlen;
@@ -228,7 +223,6 @@ static ssize_t mtd_write(struct file *file, const char *buf, size_t count,loff_t
 		
 		kfree(kbuf);
 	}
-	*ppos = pos;
 
 	return total_retlen;
 } /* mtd_write */
@@ -450,80 +444,12 @@ static int mtd_ioctl(struct inode *inode, struct file *file,
 		break;
 	}
 
-	case MEMWRITEDATA:
+	case MEMSETOOBSEL:
 	{
-		struct mtd_oob_buf buf;
-		void *databuf;
-		ssize_t retlen;
-		
-		if (copy_from_user(&buf, (struct mtd_oob_buf *)arg, sizeof(struct mtd_oob_buf)))
+		if (copy_from_user(&mtd->oobinfo ,(void *)arg, sizeof(struct nand_oobinfo)))
 			return -EFAULT;
-		
-		if (buf.length > 0x4096)
-			return -EINVAL;
-
-		if (!mtd->write_ecc)
-			ret = -EOPNOTSUPP;
-		else
-			ret = verify_area(VERIFY_READ, (char *)buf.ptr, buf.length);
-
-		if (ret)
-			return ret;
-
-		databuf = kmalloc(buf.length, GFP_KERNEL);
-		if (!databuf)
-			return -ENOMEM;
-		
-		if (copy_from_user(databuf, buf.ptr, buf.length)) {
-			kfree(databuf);
-			return -EFAULT;
-		}
-
-		ret = (mtd->write_ecc)(mtd, buf.start, buf.length, &retlen, databuf, NULL, 0);
-
-		if (copy_to_user((void *)arg + sizeof(u_int32_t), &retlen, sizeof(u_int32_t)))
-			ret = -EFAULT;
-
-		kfree(databuf);
-		break;
-
-	}
-
-	case MEMREADDATA:
-	{
-		struct mtd_oob_buf buf;
-		void *databuf;
-		ssize_t retlen = 0;
-
-		if (copy_from_user(&buf, (struct mtd_oob_buf *)arg, sizeof(struct mtd_oob_buf)))
-			return -EFAULT;
-		
-		if (buf.length > 0x4096)
-			return -EINVAL;
-
-		if (!mtd->read_ecc)
-			ret = -EOPNOTSUPP;
-		else
-			ret = verify_area(VERIFY_WRITE, (char *)buf.ptr, buf.length);
-
-		if (ret)
-			return ret;
-
-		databuf = kmalloc(buf.length, GFP_KERNEL);
-		if (!databuf)
-			return -ENOMEM;
-		
-		ret = (mtd->read_ecc)(mtd, buf.start, buf.length, &retlen, databuf, NULL, 0);
-
-		if (copy_to_user((void *)arg + sizeof(u_int32_t), &retlen, sizeof(u_int32_t)))
-			ret = -EFAULT;
-		else if (retlen && copy_to_user(buf.ptr, databuf, retlen))
-			ret = -EFAULT;
-		
-		kfree(databuf);
 		break;
 	}
-
 		
 	default:
 		DEBUG(MTD_DEBUG_LEVEL0, "Invalid ioctl %x (MEMGETINFO = %x)\n", cmd, MEMGETINFO);
@@ -534,13 +460,13 @@ static int mtd_ioctl(struct inode *inode, struct file *file,
 } /* memory_ioctl */
 
 static struct file_operations mtd_fops = {
-	owner:		THIS_MODULE,
-	llseek:		mtd_lseek,     	/* lseek */
-	read:		mtd_read,	/* read */
-	write: 		mtd_write, 	/* write */
-	ioctl:		mtd_ioctl,	/* ioctl */
-	open:		mtd_open,	/* open */
-	release:	mtd_close,	/* release */
+	.owner		= THIS_MODULE,
+	.llseek		= mtd_lseek,
+	.read		= mtd_read,
+	.write		= mtd_write,
+	.ioctl		= mtd_ioctl,
+	.open		= mtd_open,
+	.release	= mtd_close,
 };
 
 
@@ -580,26 +506,18 @@ static void mtd_notify_remove(struct mtd_info* mtd)
 
 static int __init init_mtdchar(void)
 {
-#ifdef CONFIG_DEVFS_FS
-	if (devfs_register_chrdev(MTD_CHAR_MAJOR, "mtd", &mtd_fops))
-	{
-		printk(KERN_NOTICE "Can't allocate major number %d for Memory Technology Devices.\n",
-		       MTD_CHAR_MAJOR);
-		return -EAGAIN;
-	}
-
-	devfs_dir_handle = devfs_mk_dir(NULL, "mtd", NULL);
-
-	register_mtd_user(&notifier);
-#else
 	if (register_chrdev(MTD_CHAR_MAJOR, "mtd", &mtd_fops))
 	{
 		printk(KERN_NOTICE "Can't allocate major number %d for Memory Technology Devices.\n",
 		       MTD_CHAR_MAJOR);
 		return -EAGAIN;
 	}
-#endif
 
+#ifdef CONFIG_DEVFS_FS
+	devfs_dir_handle = devfs_mk_dir(NULL, "mtd", NULL);
+
+	register_mtd_user(&notifier);
+#endif
 	return 0;
 }
 
@@ -608,10 +526,8 @@ static void __exit cleanup_mtdchar(void)
 #ifdef CONFIG_DEVFS_FS
 	unregister_mtd_user(&notifier);
 	devfs_unregister(devfs_dir_handle);
-	devfs_unregister_chrdev(MTD_CHAR_MAJOR, "mtd");
-#else
-	unregister_chrdev(MTD_CHAR_MAJOR, "mtd");
 #endif
+	unregister_chrdev(MTD_CHAR_MAJOR, "mtd");
 }
 
 module_init(init_mtdchar);

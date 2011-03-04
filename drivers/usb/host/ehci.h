@@ -84,7 +84,8 @@ struct ehci_hcd {			/* one per controller */
 	struct notifier_block	reboot_notifier;
 	unsigned long		actions;
 	unsigned		stamp;
-
+	
+	unsigned		is_tdi_rh_tt:1;	/* TDI roothub with TT */
 	/* irq statistics */
 #ifdef EHCI_STATS
 	struct ehci_stats	stats;
@@ -176,6 +177,14 @@ struct ehci_caps {
 #define HCC_PGM_FRAMELISTLEN(p) ((p)&(1 << 1))  /* true: periodic_size changes*/
 #define HCC_64BIT_ADDR(p)       ((p)&(1))       /* true: can use 64-bit addr */
 	u8		portroute [8];	 /* nibbles for routing - offset 0xC */
+#ifdef CONFIG_USB_EHCI_PNX0106        /* ARC Controller Core V3.2 specific */
+       u8      reserved1[12];          /*  reserved 12 bytes */
+       u16     dci_version;            /* dev. interface version number */
+       u8      reserved2[2];           /* reserved 2 bytes */
+       u32     dcc_params;             /* device control capability parameters */
+       u8      reserved3[24];          /* reserved 24 bytes */
+#endif
+
 } __attribute__ ((packed));
 
 
@@ -221,15 +230,41 @@ struct ehci_regs {
 	u32		frame_list; 	/* points to periodic list */
 	/* ASYNCICLISTADDR: offset 0x18 */
 	u32		async_next;	/* address of next async queue head */
-
+#ifndef CONFIG_USB_EHCI_PNX0106
 	u32		reserved [9];
+#else  /* ARC Controller Core V3.2 specific */
+       u32     async_status;           /* asynchronous buffer status for embedded TT */
+       u32     burst_size;             /* programmable burst size */
+       u32     tx_fill_tuning;         /* host transmit pre-buffer packet tuning */
+       u32     tx_tt_fill_tuning;      /* host TT transmit pre-buffer packet tuning */
+       u8      reserved1[4];           /* reserved 4 bytes */
+       u8      reserved2[16];          /* reserved 16 bytes */
+#endif
+
 
 	/* CONFIGFLAG: offset 0x40 */
 	u32		configured_flag;
 #define FLAG_CF		(1<<0)		/* true: we'll support "high speed" */
 
 	/* PORTSC: offset 0x44 */
+#ifndef CONFIG_USB_EHCI_PNX0106
 	u32		port_status [0];	/* up to N_PORTS */
+#else
+       u32             port_status [8];        /* up to N_PORTS */
+#define PORT_PTS       (1<<31)         /* parallel tranciever select (rw) */
+#define PORT_STS       (1<<30)         /* serial tranciever select (rw) */
+#define PORT_PTW       (1<<29)         /* parallel tranciever width (rw) */
+/* 28 reserved */
+#define PORT_PSPD      (3<<26)         /* port speed (ro) */
+                                       /* 00 - full speed */
+                                       /* 01 - low speed */
+                                       /* 10 - high speed */
+/* 25 reserved */
+#define PORT_PFSC      (1<<24)         /* port force full speed connect (rw) */
+#define PORT_PHCD      (1<<23)         /* PHY low power suspend - clk disable(PLPSCD) (rw) */
+#endif
+
+
 /* 31:23 reserved */
 #define PORT_WKOC_E	(1<<22)		/* wake on overcurrent (enable) */
 #define PORT_WKDISC_E	(1<<21)		/* wake on disconnect (enable) */
@@ -250,7 +285,51 @@ struct ehci_regs {
 #define PORT_PE		(1<<2)		/* port enable */
 #define PORT_CSC	(1<<1)		/* connect status change */
 #define PORT_CONNECT	(1<<0)		/* device connected */
+#define PORT_RWC_BITS   (PORT_CSC | PORT_PEC | PORT_OCC)
+       
+#ifdef CONFIG_USB_EHCI_PNX0106  /* ARC Controller Core V3.2 specific */
+       u32     otg_sc;          /* On-The-Go status and control */
+       u32     usb_mode;        /* USB device mode */
+#define MODE_SDIS      (1<<4)  /* stream disable mode */
+#define MODE_SLOM      (1<<3)  /* setup lockout mode */
+#define MODE_ES        (1<<2)  /* endian select (0 = little, 1 = big endian) */
+#define MODE_ES_LE     (0<<2)  /* 0 = little endian */
+#define MODE_ES_BE     (1<<2)  /* 1 = big endian */
+#define MODE_CM        (3<<0)  /* controller mode */
+                               /* 00 - Idle (default for comb'd host/device) */
+                               /* 01 - reserved */
+                               /* 10 - device controller */
+#define MODE_CM_HOST   (3<<0)  /* 11 - host controller */
+#define MODE_SDIS_NO_STREAM    (1<<4)  /* stream disable mode - 0 inactive, 1 active (active == no streaming) */
+
+       u32     end_set_stat;    /* endpoint setup status */
+       u32     end_prime;       /* endpoint initialisation */
+       u32     end_flush;       /* endpoint de-initialisation */
+       u32     end_status;      /* endpoint status */
+       u32     end_complete;    /* endpoint complete */
+       u32     end_ctrl0;       /* endpoint control 0 */
+       u32     end_ctrl1;       /* endpoint control 1 */
+#endif
+
 } __attribute__ ((packed));
+
+
+#ifdef CONFIG_USB_EHCI_PNX0106                /* ARC Controller Core V3.2 specific */
+/* Identification Registers for information purposes only. It is not complete in
+ * that the bit defines are not included. */
+struct arc_ident
+{
+       u32     identification;         /* identification register */
+       u32     hw_general;                     /* general hardware parameters */
+       u32     hw_host;                        /* host hardware parameters */
+       u32     hw_device;                      /* device hardware parameters */
+       u32     hw_tx_buffer;           /* tx buffer hardware parameters */
+       u32     hw_rx_buffer;           /* rx buffer hardware parameters */
+       u32     hw_tt_tx_buffer;        /* TT tx buffer hardware parameters */
+       u32     hw_tt_rx_buffer;        /* TT rx buffer hardware parameters */
+       u8      reserved[232];          /* reserved 232 bytes */
+} __attribute__ ((packed));
+#endif
 
 
 /*-------------------------------------------------------------------------*/
@@ -557,11 +636,44 @@ static inline int hcd_register_root (struct usb_hcd *hcd)
 
 #define SUBMIT_URB(urb,mem_flags) usb_submit_urb(urb,mem_flags)
 
+#endif	/* LINUX_VERSION_CODE */
+
 #ifndef DEBUG
 #define STUB_DEBUG_FILES
 #endif	/* DEBUG */
+#define CONFIG_USB_EHCI_ROOT_HUB_TT
+#ifdef CONFIG_USB_EHCI_ROOT_HUB_TT
+/*
+ * Some EHCI controllers have a Transaction Translator built into the
+ * root hub. This is a non-standard feature.  Each controller will need
+ * to add code to the following inline functions, and call them as
+ * needed (mostly in root hub code).
+ */
 
-#endif	/* LINUX_VERSION_CODE */
+#define	ehci_is_ARC(e)			((e)->is_tdi_rh_tt)
+
+/* Returns the speed of a device attached to a port on the root hub. */
+static inline unsigned int
+ehci_port_speed(struct ehci_hcd *ehci, unsigned int portsc)
+{
+	if (ehci_is_ARC(ehci)) {
+		switch ((portsc>>26)&3) {
+			case 0:
+				return 0;
+			case 1:
+				return (1<<USB_PORT_FEAT_LOWSPEED);
+			case 2:
+			default:
+			return (1<<USB_PORT_FEAT_HIGHSPEED);
+		}
+	}
+	return (1<<USB_PORT_FEAT_HIGHSPEED);
+}
+#else
+#define ehci_is_ARC(e)                  (0)
+#define ehci_port_speed(ehci, portsc)   (1<<USB_PORT_FEAT_HIGHSPEED)
+#endif
+
 
 /*-------------------------------------------------------------------------*/
 

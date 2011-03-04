@@ -97,7 +97,7 @@ static const card_ids oakscsi_cids[] = {
 };
 
 #define OAK_ADDRESS(card) (ecard_address((card), ECARD_MEMC, 0))
-#define OAK_IRQ(card)	  (IRQ_NONE)
+#define OAK_IRQ(card)	  (SCSI_IRQ_NONE)
 /*
  * Function : int oakscsi_detect(Scsi_Host_Template * tpnt)
  *
@@ -136,20 +136,20 @@ int oakscsi_detect(Scsi_Host_Template * tpnt)
 	instance->n_io_port = 255;
 	request_region (instance->io_port, instance->n_io_port, "Oak SCSI");
 
-	if (instance->irq != IRQ_NONE)
+	if (instance->irq != SCSI_IRQ_NONE)
 	    if (request_irq(instance->irq, do_oakscsi_intr, SA_INTERRUPT, "Oak SCSI", NULL)) {
 		printk("scsi%d: IRQ%d not free, interrupts disabled\n",
 		    instance->host_no, instance->irq);
-		instance->irq = IRQ_NONE;
+		instance->irq = SCSI_IRQ_NONE;
 	    }
 
-	if (instance->irq != IRQ_NONE) {
+	if (instance->irq != SCSI_IRQ_NONE) {
 	    printk("scsi%d: eek! Interrupts enabled, but I don't think\n", instance->host_no);
 	    printk("scsi%d: that the board had an interrupt!\n", instance->host_no);
 	}
 
 	printk("scsi%d: at port %lX irq", instance->host_no, instance->io_port);
-	if (instance->irq == IRQ_NONE)
+	if (instance->irq == SCSI_IRQ_NONE)
 	    printk ("s disabled");
 	else
 	    printk (" %d", instance->irq);
@@ -172,7 +172,7 @@ int oakscsi_release (struct Scsi_Host *shpnt)
 {
 	int i;
 
-	if (shpnt->irq != IRQ_NONE)
+	if (shpnt->irq != SCSI_IRQ_NONE)
 		free_irq (shpnt->irq, NULL);
 	if (shpnt->io_port)
 		release_region (shpnt->io_port, shpnt->n_io_port);

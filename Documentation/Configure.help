@@ -4941,6 +4941,13 @@ CONFIG_FB_PM2_PCI
   Say Y to enable support for Permedia2 AGP frame buffer card from
   3Dlabs (aka `Graphic Blaster Exxtreme') on the PCI bus.
 
+Permedia3 support (EXPERIMENTAL)
+CONFIG_FB_PM3
+  This is the frame buffer device driver for the 3DLabs Permedia3
+  chipset, used in Formac ProFormance III, 3DLabs Oxygen VX1 &
+  similar boards, 3DLabs Permedia3 Create!, Appian Jeronimo 2000
+  and maybe other boards.
+
 Phase5 CVisionPPC/BVisionPPC support
 CONFIG_FB_PM2_CVPPC
   Say Y to enable support for the Amiga Phase 5 CVisionPPC BVisionPPC
@@ -13338,6 +13345,17 @@ CONFIG_TMSPCI
   The module will be called tmspci.o. If you want to compile it
   as a module, say M here and read <file:Documentation/modules.txt>.
 
+Altera ether00 support
+CONFIG_ETHER00
+  This is the driver for Altera's ether00 ethernet mac IP core. Say
+  Y here if you want to build support for this into the kernel. It
+  is also available as a module (say M here) that can be inserted/
+  removed from the kernel at the same time as the PLD is configured. 
+  If this driver is running on an epxa10 development board then it 
+  will generate a suitable hw address based on the board serial 
+  number (MTD support is required for this). Otherwise you will 
+  need to set a suitable hw address using ifconfig.
+
 Generic TMS380 ISA support
 CONFIG_TMSISA
   This tms380 module supports generic TMS380-based ISA cards.
@@ -15291,6 +15309,16 @@ CONFIG_USB_SERIAL_GENERIC
   using this driver.  It is recommended that the "USB Serial converter
   support" be compiled as a module for this driver to be used
   properly.
+
+Altera's uart00 serial driver
+CONFIG_SERIAL_UART00
+  Say Y here if you want to use the hard logic uart on Excalibur. This 
+  driver also supports soft logic implentations of this uart core.
+
+Serial console on uart00 
+CONFIG_SERIAL_UART00_CONSOLE
+  Say Y here if you want to support a serial console on an Excalibur
+  hard logic uart or uart00 IP core.
 
 USB ConnectTech WhiteHEAT Serial Driver
 CONFIG_USB_SERIAL_WHITEHEAT
@@ -19326,6 +19354,20 @@ CONFIG_I2C_VELLEMAN
   <file:Documentation/modules.txt>.
   The module will be called i2c-velleman.o.
 
+Guide GPIO adapter
+CONFIG_I2C_GUIDE
+  This supports the Iders GUIDE I2C bit-bashing adapter.  If you have
+  selected the GUIDE A07 as your ARM system type, you cannot deselect
+  this option, as it is required for proper operation of the GUIDE.
+
+  This interface uses /dev/i2c-0 (major 89, minor 0).
+
+  Say Y if you own such an adapter.
+
+  This driver is also available as a module. If you want to compile
+  it as a module, say M here and read Documentation/modules.txt. The
+  module will be called i2c-guide.o.
+
 I2C PCF 8584 interfaces
 CONFIG_I2C_ALGOPCF
   This allows you to use a range of I2C adapters called PCF adapters.
@@ -20462,6 +20504,17 @@ CONFIG_SOFT_WATCHDOG
   If you want to compile it as a module, say M here and read
   <file:Documentation/modules.txt>. The module will be called
    softdog.o.
+
+SA1100 Internal Watchdog
+CONFIG_SA1100_WATCHDOG
+  Watchdog timer embedded into SA11x0 chips. This will reboot your
+  system when timeout is reached.
+  NOTE, that once enabled, this timer cannot be disabled.
+
+  This driver is also available as a module ( = code which can be
+  inserted in and removed from the running kernel whenever you want).
+  If you want to compile it as a module, say M here and read
+  Documentation/modules.txt. The module will be called sa1100_wdt.o.
 
 Berkshire Products PC Watchdog
 CONFIG_PCWATCHDOG
@@ -22123,6 +22176,30 @@ CONFIG_SOUND_RME96XX
   Say Y or M if you have a Hammerfall or Hammerfall light multichannel card 
   from RME. If you want to acess advanced features of the card, read
   Documentation/sound/rme96xx.
+
+Assabet audio (UDA1341) support
+CONFIG_SOUND_ASSABET_UDA1341
+  Say Y or M if you have an Intel Assabet evaluation board and want to
+  use the Philips UDA 1341 audio chip (the one that drives the stereo
+  audio output) on the SA1100 SSP port.
+
+Compaq iPAQ audio support
+CONFIG_SOUND_H3600_UDA1341
+  Say Y or M if you have a Compaq iPaq handheld computer and want to
+  use its Philips UDA 1341 audio chip.
+
+Audio support for SA1111/UDA1341
+CONFIG_SOUND_SA1111_UDA1341
+  Say Y or M if you have an SA11x0 system with a Philips UDA 1341
+  connected to the SA11x1. An example of such a system is the Intel
+  Assabet evaluation board connected to a Neponset expansion board.
+
+Generic DAC on the SA11x0 SSP port
+CONFIG_SOUND_SA1100SSP
+  Say Y or M if you have an SA-11x0 system with a DAC on the SSP port.
+  The LART has an Burr-Brown PCM 1710 digital to analog convertor on
+  the SSP port, so you want to say Y or M for the LART. It might work
+  on other SA-1100 platforms, too, but this is not tested.
 
 Are you using a crosscompiler
 CONFIG_CROSSCOMPILE
@@ -25818,12 +25895,34 @@ CONFIG_SA1100_PANGOLIN
   Say Y if configuring for a Pangolin.
   Say N otherwise.
 
+Shannon
+CONFIG_SA1100_SHANNON
+  The Shannon (also known as a Tuxscreen, and also as a IS2630) was a
+  limited edition webphone produced by Philips. The Shannon is a SA1100
+  platform with a 640x480 LCD, touchscreen, CIR keyboard, PCMCIA slots,
+  and a telco interface.
+
+Simputer
+CONFIG_SA1100_SIMPUTER
+  Say Y here if you are using an Intel(R) StrongARM(R) SA-1110
+  based Simputer.  See http://www.simputer.org/ for information
+  on the Simputer. The Simputer software is actively maintained
+  by PicoPeta Simputers Pvt. Ltd. (http://www.picopeta.com)
+
 Victor
 CONFIG_SA1100_VICTOR
   Say Y here if you are using a Visu Aide Intel(R) StrongARM(R)
   SA-1100 based Victor Digital Talking Book Reader.  See
   <http://www.visuaide.com/pagevictor.en.html> for information on
   this system.
+
+Radisys Corp. Tulsa
+CONFIG_SA1100_PFS168
+  The Radisys Corp. PFS-168 (aka Tulsa) is an Intel® StrongArm® SA-1110 based
+  computer which includes the SA-1111 Microprocessor Companion Chip and other
+  custom I/O designed to add connectivity and multimedia features for vending
+  and business machine applications. Say Y here if you require support for
+  this target.
 
 # Choice: cerf_ram
 Cerf on-board RAM size
@@ -25892,37 +25991,65 @@ CONFIG_CPU_ARM920T
   Say Y if you want support for the ARM920T processor.
   Otherwise, say N.
 
+Support ARM922T processor
+CONFIG_CPU_ARM922T
+  The ARM922T is a version of the ARM920T, but with smaller
+  instruction and data caches. It is used in Altera's 
+  Excalibur XA device family.
+
+  Say Y if you want support for the ARM922T processor.
+  Otherwise, say N.
+
+Disable instruction cache
+CONFIG_CPU_ICACHE_DISABLE
+  Say Y here to disable the processor instruction cache. Unless 
+  you have a reason to do this, say N.
+
+Disable data cache
+CONFIG_CPU_DCACHE_DISABLE
+  Say Y here to disable the processor data cache. Unless 
+  you have a reason to do this, say N.
+
+Use data cache in writethrough mode
+CONFIG_CPU_DCACHE_WRITETHROUGH
+  Say Y here to use the data cache in writethough mode. Unless you 
+  specifically require this, say N.
+
 Support ARM1020 processor
 CONFIG_CPU_ARM1020
-  The ARM1020 is the cached version of the ARM10 processor,
+  The ARM1020 is the 32K cached version of the ARM10 processor,
   with an addition of a floating-point unit.
 
   Say Y if you want support for the ARM1020 processor.
   Otherwise, say N.
 
-Disable I-Cache
-CONFIG_CPU_ICACHE_DISABLE
-  Say Y here to disable the processor instruction cache. Unless
-  you have a reason not to or are unsure, say N.
+Support ARM1022 processor
+CONFIG_CPU_ARM1022
+  The ARM1022E is the 16K cached version of the ARM10 processor,
+  with an addition of a floating-point unit.
 
-Disable D-Cache
-CONFIG_CPU_DCACHE_DISABLE
-  Say Y here to disable the processor data cache. Unless
-  you have a reason not to or are unsure, say N.
+  Say Y if you want support for the ARM1022 processor.
+  Otherwise, say N.
 
-Force write through D-cache
-CONFIG_CPU_DCACHE_WRITETHROUGH
-  Say Y here to use the data cache in write-through mode. Unless you
-  specifically require this or are unsure, say N.
-
-Round robin I and D cache replacement algorithm
+Force round-robin cache line replacement
 CONFIG_CPU_CACHE_ROUND_ROBIN
-  Say Y here to use the predictable round-robin cache replacement
-  policy.  Unless you specifically require this or are unsure, say N.
+  Say Y here to force the caches to use a round-robin
+  algorithm when picking a cache line to evict. Unless you
+  specifically require this, say N.
+
+Disable the write buffer
+CONFIG_CPU_WB_DISABLE
+  Say Y here to turn off the write buffer (if possible)
+  Unless you specifically require this, say N. Note that
+  not all ARM processors allow the write buffer to be
+  disabled.
 
 Disable branch prediction
 CONFIG_CPU_BPREDICT_DISABLE
-  Say Y here to disable branch prediction.  If unsure, say N.
+  The ARM10 family of processors support branch prediction,
+  which can significantly speed up execution of loops.
+  Say Y here to disable branch prediction. Unless you
+  specifically require this, say N.
 
 Compressed boot loader in ROM/flash
 CONFIG_ZBOOT_ROM
@@ -25969,6 +26096,11 @@ CONFIG_SA1100_OMNIMETER
   Say Y here if you are using the inhand electronics OmniMeter.  See
   <http://www.inhandelectronics.com/html/omni1.html> for details.
 
+HP Laboratories BadgePAD 4
+CONFIG_SA1100_BADGE4
+  Say Y here if you want to build a kernel for the HP Laboratories
+  BadgePAD 4.
+
 Load kernel using Angel Debug Monitor
 CONFIG_ANGELBOOT
   Say Y if you plan to load the kernel using Angel, ARM Ltd's target
@@ -25980,6 +26112,15 @@ CONFIG_ARCH_CDB89712
   This is an evaluation board from Cirrus for the CS89712 processor.  The
   board includes 2 serial ports, Ethernet, IRDA, and expansion headers.
   It comes with 16 MB SDRAM and 8 MB flash ROM.
+
+GUIDEA07
+CONFIG_ARCH_GUIDEA07
+  Say Y if you are using a GUIDE (A07) board.
+
+  This board is based on the cs89712 processor and shares much common
+  hardware with the CDB89712 configuration.  When you select this
+  option and the CDB89712 becomes enabled also, don't worry.  It's
+  supposed to be that way.
 
 CLPS-711X internal ROM bootstrap
 CONFIG_EP72XX_ROM_BOOT
@@ -26009,24 +26150,44 @@ CONFIG_FPE_NWFPE
   You may say N here if you are going to load the Acorn FPEmulator
   early in the bootup.
 
+Math emulation 80-bit support
+CONFIG_FPE_NWFPE_XP
+  Say Y to include 80-bit support in the kernel floating-point
+  emulator.  Otherwise, only 32 and 64-bit support is compiled in.
+  Note that gcc does not generate 80-bit operations by default,
+  so in most cases this option only enlarges the size of the
+  floating point emulator without any good reason.
+
+  You almost surely want to say N here.
+
 FastFPE math emulation
 CONFIG_FPE_FASTFPE
   Say Y here to include the FAST floating point emulator in the kernel.
-  This is an experimental much faster emulator which has only 32 bit
-  precision for the mantissa.  It does not support any exceptions.
-  This makes it very simple, it is approximately 4-8 times faster than
-  NWFPE.
+  This is an experimental much faster emulator which is written
+  completely in ARM assembly. All instructions that are not marked as
+  deprecated in the ARM7500FE data sheet are implemented. It supports
+  single, double and double extended precision. It does support
+  exception flags, but not raising exceptions. It gives an average
+  5 times speed increase over NWFPE for FP only code.
+  
+  FastFPE does not require long multiply instruction anymore and is
+  now suitable for all ARM cpus. The presence of the long multiply
+  instruction is detected during initialisation and used to speedup
+  multiply and divide.
 
-  It should be sufficient for most programs.  It is definitely not
-  suitable if you do scientific calculations that need double
-  precision for iteration formulas that sum up lots of very small
-  numbers.  If you do not feel you need a faster FP emulation you
-  should better choose NWFPE.
+  Compliance to IEEE Std 754-1985 was verified using the testfloat
+  program of the SoftFloat package version 2a by John Hauser. All
+  operations except square root were reported to be compliant. However,
+  this is not a proof, and especially does not verify the instruction
+  parser.
+
+  You can compile both emulators into the kernel and choose one
+  of them at boot time by passing "fpe=fastfpe" or "fpe=nwfpe" as
+  kernel parameter.
 
   It is also possible to say M to build the emulator as a module
-  (fastfpe.o).  But keep in mind that you should only load the FP
-  emulator early in the bootup.  You should never change from NWFPE to
-  FASTFPE or vice versa in an active system!
+  (fastfpe.o). This was never tested. Only do it if you know what
+  you are doing!
 
 DS1620 thermometer support
 CONFIG_DS1620

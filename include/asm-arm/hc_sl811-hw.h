@@ -38,7 +38,7 @@ static __u8 inline sl811_read_data (hcipriv_t *hp)
  */
 static void inline sl811_write_index (hcipriv_t *hp, __u8 index)
 {
-	writeb (offset, hp->hcport);
+	writeb (index, hp->hcport);
 	wmb ();
 }
 
@@ -55,7 +55,7 @@ static void inline sl811_write_data (hcipriv_t *hp, __u8 data)
  */
 static void inline sl811_write_index_data (hcipriv_t *hp, __u8 index, __u8 data)
 {
-	writeb (offset, hp->hcport);
+	writeb (index, hp->hcport);
 	writeb (data, hp->hcport2);
 	wmb ();
 }

@@ -32,6 +32,19 @@
 #include <linux/slab.h>
 #include <linux/module.h>
 
+/* Maybe something to cleanup in 2.3?
+ * We shouldn't touch 0x3f2 on machines which don't have a PC floppy controller
+ * - it may contain something else which could cause a system hang.  This is
+ * now selected by a configuration option, but maybe it ought to be in the
+ * floppy code itself? - rmk
+ */
+#if defined(__i386__) || (defined(__arm__) && defined(CONFIG_ARCH_ACORN))
+#define FLOPPY_BOOT_DISABLE
+#endif
+#ifdef CONFIG_BLK_DEV_FD
+#undef FLOPPY_BOOT_DISABLE
+#endif
+
 /*
  * MAC Floppy IWM hooks
  */
@@ -524,7 +537,7 @@ void blk_init_queue(request_queue_t * q, request_fn_proc * rfn)
 	elevator_init(&q->elevator, ELEVATOR_LINUS);
 	blk_init_free_list(q);
 	q->request_fn     	= rfn;
-	q->back_merge_fn       	= ll_back_merge_fn;
+	q->back_merge_fn	= ll_back_merge_fn;
 	q->front_merge_fn      	= ll_front_merge_fn;
 	q->merge_requests_fn	= ll_merge_requests_fn;
 	q->make_request_fn	= __make_request;
@@ -1080,7 +1093,7 @@ again:
 				break;
 			}
 			bh->b_reqnext = req->bh;
-			req->bh = bh;
+			WRITE_FIX(req->bh, bh);
 			/*
 			 * may not be valid, but queues not having bounce
 			 * enabled for highmem pages must not look at
@@ -1155,7 +1168,7 @@ get_rq:
 	req->nr_hw_segments = 1; /* Always 1 for a new request. */
 	req->buffer = bh->b_data;
 	req->waiting = NULL;
-	req->bh = bh;
+	WRITE_FIX(req->bh, bh);
 	req->bhtail = bh;
 	req->rq_dev = bh->b_rdev;
 	req->start_time = jiffies;
@@ -1291,6 +1304,11 @@ void submit_bh(int rw, struct buffer_head * bh)
 	set_bit(BH_Req, &bh->b_state);
 	set_bit(BH_Launder, &bh->b_state);
 
+	if (unlikely(!bh->b_end_io)) {
+		printk ("%s: %s block %lu/%u on %s\n", current->comm, rw == WRITE ? "WRITE" : "READ", bh->b_rsector, count, kdevname(bh->b_rdev));
+		BUG();
+	}
+
 	/*
 	 * First step, 'identity mapping' - RAID or LVM might
 	 * further remap this.
@@ -1413,6 +1431,11 @@ void ll_rw_block(int rw, int nr, struct buffer_head * bhs[])
 			continue;
 		}
 
+		if (unlikely(!bh->b_end_io)) {
+			printk ("%s: %s block %lu/%u on %s\n", current->comm, rw == WRITE ? "WRITE" : "READ", bh->b_rsector, (bh->b_size >> 9), kdevname(bh->b_rdev));
+			BUG();
+		}
+
 		submit_bh(rw, bh);
 	}
 	return;
@@ -1466,7 +1489,7 @@ int end_that_request_first (struct request *req, int uptodate, char *name)
 		nsect = bh->b_size >> 9;
 		blk_finished_io(nsect);
 		blk_finished_sectors(req, nsect);
-		req->bh = bh->b_reqnext;
+		WRITE_FIX(req->bh, bh->b_reqnext);
 		bh->b_reqnext = NULL;
 		bh->b_end_io(bh, uptodate);
 		if ((bh = req->bh) != NULL) {
@@ -1549,7 +1572,7 @@ int __init blk_dev_init(void)
 	mfm_init();
 #endif
 #ifdef CONFIG_PARIDE
-	{ extern void paride_init(void); paride_init(); };
+	{ extern void paride_init(void); paride_init(); }
 #endif
 #ifdef CONFIG_MAC_FLOPPY
 	swim3_init();
@@ -1563,12 +1586,14 @@ int __init blk_dev_init(void)
 #ifdef CONFIG_ATARI_FLOPPY
 	atari_floppy_init();
 #endif
+#ifdef CONFIG_BLK_DEV_FD1772
+	fd1772_init();
+#endif
 #ifdef CONFIG_BLK_DEV_FD
 	floppy_init();
-#else
-#if defined(__i386__)	/* Do we even need this? */
-	outb_p(0xc, 0x3f2);
 #endif
+#ifdef FLOPPY_BOOT_DISABLE
+	outb_p(0xc, 0x3f2);
 #endif
 #ifdef CONFIG_CDU31A
 	cdu31a_init();
@@ -1626,7 +1651,7 @@ int __init blk_dev_init(void)
 	jsfd_init();
 #endif
 	return 0;
-};
+}
 
 EXPORT_SYMBOL(io_request_lock);
 EXPORT_SYMBOL(end_that_request_first);

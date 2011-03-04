@@ -345,6 +345,7 @@ EXPORT_SYMBOL(max_readahead);
 
 /* tty routines */
 EXPORT_SYMBOL(tty_hangup);
+EXPORT_SYMBOL(tty_vhangup);
 EXPORT_SYMBOL(tty_wait_until_sent);
 EXPORT_SYMBOL(tty_check_change);
 EXPORT_SYMBOL(tty_hung_up_p);
@@ -439,9 +440,11 @@ EXPORT_SYMBOL(brw_kiovec);
 EXPORT_SYMBOL(kiobuf_wait_for_io);
 
 /* dma handling */
+#ifdef CONFIG_GENERIC_ISA_DMA
 EXPORT_SYMBOL(request_dma);
 EXPORT_SYMBOL(free_dma);
 EXPORT_SYMBOL(dma_spin_lock);
+#endif
 #ifdef HAVE_DISABLE_HLT
 EXPORT_SYMBOL(disable_hlt);
 EXPORT_SYMBOL(enable_hlt);

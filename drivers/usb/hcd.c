@@ -96,7 +96,7 @@ static DECLARE_MUTEX (hcd_list_lock);
 /* used when updating hcd data */
 static spinlock_t hcd_data_lock = SPIN_LOCK_UNLOCKED;
 
-static struct usb_operations hcd_operations;
+/*static*/ struct usb_operations hcd_operations;
 
 /*-------------------------------------------------------------------------*/
 
@@ -251,6 +251,10 @@ static const u8 hs_rh_config_descriptor [] = {
  	0x02, 0x00, /*  __u16 ep_wMaxPacketSize; 1 + (MAX_ROOT_PORTS / 8) */
 	0x0c        /*  __u8  ep_bInterval; (256ms -- usb 2.0 spec) */
 };
+
+#ifdef CONFIG_USB_EHCI_PNX0106
+#include "amba-hcd.c"
+#endif
 
 /*-------------------------------------------------------------------------*/
 
@@ -1208,13 +1212,21 @@ static int hcd_submit_urb (struct urb *urb)
 	} else {
 		if (usb_pipecontrol (urb->pipe))
 			urb->setup_dma = pci_map_single (
+#ifdef CONFIG_PCI
 					hcd->pdev,
+#else
+					NULL,
+#endif
 					urb->setup_packet,
 					sizeof (struct usb_ctrlrequest),
 					PCI_DMA_TODEVICE);
 		if (urb->transfer_buffer_length != 0)
 			urb->transfer_dma = pci_map_single (
+#ifdef CONFIG_PCI
 					hcd->pdev,
+#else
+					NULL,
+#endif
 					urb->transfer_buffer,
 					urb->transfer_buffer_length,
 					usb_pipein (urb->pipe)
@@ -1424,7 +1436,7 @@ static int hcd_free_dev (struct usb_device *udev)
 	return 0;
 }
 
-static struct usb_operations hcd_operations = {
+/*static*/ struct usb_operations hcd_operations = {
 	allocate:		hcd_alloc_dev,
 	get_frame_number:	hcd_get_frame_number,
 	submit_urb:		hcd_submit_urb,
@@ -1434,7 +1446,7 @@ static struct usb_operations hcd_operations = {
 
 /*-------------------------------------------------------------------------*/
 
-static void hcd_irq (int irq, void *__hcd, struct pt_regs * r)
+/*static*/ void hcd_irq (int irq, void *__hcd, struct pt_regs * r)
 {
 	struct usb_hcd		*hcd = __hcd;
 	int			start = hcd->state;
@@ -1490,12 +1502,24 @@ void usb_hcd_giveback_urb (struct usb_hcd *hcd, struct urb *urb, struct pt_regs 
 	
 	/* For 2.4, don't unmap bounce buffer if it's a root hub operation. */
 	if (usb_pipecontrol (urb->pipe) && !is_root_hub_operation)
-		pci_unmap_single (hcd->pdev, urb->setup_dma,
+		pci_unmap_single (
+#ifdef CONFIG_PCI
+				hcd->pdev,
+#else
+				NULL,
+#endif
+				urb->setup_dma,
 				sizeof (struct usb_ctrlrequest),
 				PCI_DMA_TODEVICE);
 
 	if ((urb->transfer_buffer_length != 0) && !is_root_hub_operation)
-		pci_unmap_single (hcd->pdev, urb->transfer_dma,
+		pci_unmap_single (
+#ifdef CONFIG_PCI
+				hcd->pdev,
+#else
+				NULL,
+#endif
+				urb->transfer_dma,
 				urb->transfer_buffer_length,
 				usb_pipein (urb->pipe)
 				    ? PCI_DMA_FROMDEVICE

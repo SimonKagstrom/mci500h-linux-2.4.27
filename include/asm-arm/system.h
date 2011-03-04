@@ -29,6 +29,10 @@ void die(const char *msg, struct pt_regs *regs, int err)
 
 void die_if_kernel(const char *str, struct pt_regs *regs, int err);
 
+void hook_fault_code(int nr, int (*fn)(unsigned long, unsigned int,
+				       struct pt_regs *),
+		     int sig, const char *name);
+
 #include <asm/proc-fns.h>
 
 #define xchg(ptr,x) \
@@ -89,6 +93,14 @@ extern struct task_struct *__switch_to(struct task_struct *prev, struct task_str
 #define sti()			local_irq_enable()
 #define clf()			__clf()
 #define stf()			__stf()
+
+#define irqs_disabled()			\
+({					\
+	unsigned long flags;		\
+	local_save_flags(flags);	\
+	flags & PSR_I_BIT;		\
+})
+
 #define save_flags(x)		local_save_flags(x)
 #define restore_flags(x)	local_irq_restore(x)
 #define save_flags_cli(x)	local_irq_save(x)

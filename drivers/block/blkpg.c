@@ -198,7 +198,7 @@ int blkpg_ioctl(kdev_t dev, struct blkpg_ioctl_arg *arg)
 int blk_ioctl(kdev_t dev, unsigned int cmd, unsigned long arg)
 {
 	struct gendisk *g;
-	u64 ullval = 0;
+	u64 ullval;
 	int intval;
 
 	if (!dev)
@@ -243,6 +243,7 @@ int blk_ioctl(kdev_t dev, unsigned int cmd, unsigned long arg)
 		case BLKGETSIZE:
 		case BLKGETSIZE64:
 			g = get_gendisk(dev);
+			ullval = 0;
 			if (g)
 				ullval = g->part[MINOR(dev)].nr_sects;
 

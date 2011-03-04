@@ -40,6 +40,19 @@
 
 #include "hcd.h"
 
+
+volatile int iPodShuffle;
+/**
+ * Warning.
+ * This is added by JZ. There is specific class that is used to indicate MTP device.
+ * When we find the device supports MTP, the class of the device is forced to "USB_CLASS_VENDOR_SPEC_MTP".
+ * If 0xfb is used by standard usb driver. Please change "USB_CLASS_VENDOR_SPEC_MTP" to another value.
+ */
+#define USB_CLASS_VENDOR_SPEC_MTP		USB_CLASS_STILL_IMAGE
+
+
+static int16_t usb_event_count = -1;
+
 static const int usb_bandwidth_option =
 #ifdef CONFIG_USB_BANDWIDTH
 				1;
@@ -381,7 +394,7 @@ static void usb_bus_put(struct usb_bus *bus)
  *	usb_alloc_bus - creates a new USB host controller structure
  *	@op: pointer to a struct usb_operations that this bus structure should use
  *
- *	Creates a USB host controller bus structure with the specified 
+ *	Creates a USB host controller bus structure with the specified
  *	usb_operations and initializes all the necessary internal objects.
  *	(For use only by USB Host Controller Drivers.)
  *
@@ -587,7 +600,7 @@ void usb_driver_release_interface(struct usb_driver *driver, struct usb_interfac
  * only a nonzero "driver_info" field.  If you do this, the USB device
  * driver's probe() routine should use additional intelligence to
  * decide whether to bind to the specified interface.
- * 
+ *
  * What Makes Good usb_device_id Tables:
  *
  * The match algorithm is very simple, so that intelligence in
@@ -608,19 +621,19 @@ void usb_driver_release_interface(struct usb_driver *driver, struct usb_interfac
  * are slightly more general; use the USB_DEVICE_INFO macro, or
  * its siblings.  These are used with single-function devices
  * where bDeviceClass doesn't specify that each interface has
- * its own class. 
+ * its own class.
  *
  * Matches based on interface class/subclass/protocol are the
  * most general; they let drivers bind to any interface on a
  * multiple-function device.  Use the USB_INTERFACE_INFO
- * macro, or its siblings, to match class-per-interface style 
+ * macro, or its siblings, to match class-per-interface style
  * devices (as recorded in bDeviceClass).
- *  
+ *
  * Within those groups, remember that not all combinations are
  * meaningful.  For example, don't give a product version range
  * without vendor and product IDs; or specify a protocol without
  * its associated class and subclass.
- */   
+ */
 const struct usb_device_id *
 usb_match_id(struct usb_device *dev, struct usb_interface *interface,
 	     const struct usb_device_id *id)
@@ -701,7 +714,7 @@ usb_match_id(struct usb_device *dev, struct usb_interface *interface,
  *
  * The probe return value is changed to be a private pointer.  This way
  * the drivers don't have to dig around in our structures to set the
- * private pointer if they only need one interface. 
+ * private pointer if they only need one interface.
  *
  * Returns: 0 if a driver accepted the interface, -1 otherwise
  */
@@ -789,7 +802,6 @@ int usb_find_interface_driver_for_ifnum(struct usb_device *dev, unsigned ifnum)
 }
 
 #ifdef	CONFIG_HOTPLUG
-
 /*
  * USB hotplugging invokes what /proc/sys/kernel/hotplug says
  * (normally /sbin/hotplug) when USB devices get added or removed.
@@ -834,6 +846,7 @@ static void call_policy_interface (char *verb, struct usb_device *dev, int inter
 		dbg ("enomem");
 		return;
 	}
+	memset(envp, 0, 20 * sizeof (char *));
 	if (!(buf = kmalloc (256, GFP_KERNEL))) {
 		kfree (envp);
 		dbg ("enomem2");
@@ -842,9 +855,7 @@ static void call_policy_interface (char *verb, struct usb_device *dev, int inter
 
 	/* only one standardized param to hotplug command: type */
 	argv [0] = hotplug_path;
-	argv [1] = "usb";
 	argv [2] = 0;
-
 	/* minimal command environment */
 	envp [i++] = "HOME=/";
 	envp [i++] = "PATH=/sbin:/bin:/usr/sbin:/usr/bin";
@@ -874,7 +885,6 @@ static void call_policy_interface (char *verb, struct usb_device *dev, int inter
 	scratch += sprintf (scratch, "DEVICE=/proc/bus/usb/%03d/%03d",
 		dev->bus->busnum, dev->devnum) + 1;
 #endif
-
 	/* per-device configuration hacks are common */
 	envp [i++] = scratch;
 	scratch += sprintf (scratch, "PRODUCT=%x/%x/%x",
@@ -888,22 +898,59 @@ static void call_policy_interface (char *verb, struct usb_device *dev, int inter
 			    dev->descriptor.bDeviceClass,
 			    dev->descriptor.bDeviceSubClass,
 			    dev->descriptor.bDeviceProtocol) + 1;
-	if (dev->descriptor.bDeviceClass == 0) {
-		int alt = dev->actconfig->interface [interface].act_altsetting;
+        envp [i++] = scratch;
 
-		envp [i++] = scratch;
-		scratch += sprintf (scratch, "INTERFACE=%d/%d/%d",
-			dev->actconfig->interface [interface].altsetting [alt].bInterfaceClass,
-			dev->actconfig->interface [interface].altsetting [alt].bInterfaceSubClass,
-			dev->actconfig->interface [interface].altsetting [alt].bInterfaceProtocol)
-			+ 1;
-	}
+	switch (dev->descriptor.bDeviceClass)
+    {
+    case    USB_CLASS_PER_INTERFACE:
+        {
+		    int alt = dev->actconfig->interface [interface].act_altsetting;
+
+		    //envp [i++] = scratch;
+		    scratch += sprintf (scratch, "INTERFACE=%d/%d/%d",
+			    dev->actconfig->interface [interface].altsetting [alt].bInterfaceClass,
+			    dev->actconfig->interface [interface].altsetting [alt].bInterfaceSubClass,
+			    dev->actconfig->interface [interface].altsetting [alt].bInterfaceProtocol)
+			    + 1;
+		     envp [i++] = scratch;
+            //warn("\n\nJZ: interface class = %d", dev->actconfig->interface [interface].altsetting [alt].bInterfaceClass);
+    	    argv [1] = (dev->actconfig->interface [interface].altsetting [alt].bInterfaceClass != USB_CLASS_MASS_STORAGE)?"not":"usb"; /* check mass storage */
+	    }
+        break;
+    case    USB_CLASS_MASS_STORAGE:
+        argv [1] = "usb";
+        break;
+    case    USB_CLASS_HUB:
+        argv [1] = "hub";
+        break;
+	case	USB_CLASS_VENDOR_SPEC_MTP:
+		argv[1] = "mtp";
+		break;
+    default:
+        argv [1] = "not";
+        break;
+    }
+
+	scratch += sprintf (scratch, "COUNT=%04X", ++usb_event_count) + 1;
+	envp [i++] = scratch;
+    scratch += sprintf (scratch, "SUPPORTED=%d",1) + 1;
+	envp [i++] = scratch;
 	envp [i++] = 0;
+
 	/* assert: (scratch - buf) < sizeof buf */
 
 	/* NOTE: user mode daemons can call the agents too */
 
-	dbg ("kusbd: %s %s %d", argv [0], verb, dev->devnum);
+//	dbg ("kusbd: %s %s %d", argv [0], verb, dev->devnum);
+#if 0
+{
+	int j=0;
+	while (envp[j]!= 0)//for(j = 0; j < i; j++)
+	{
+		warn("\n***%s\n\n\n", envp[j++]);
+	}
+}
+#endif
 	value = call_usermodehelper (argv [0], argv, envp);
 	kfree (buf);
 	kfree (envp);
@@ -923,7 +970,7 @@ static void call_policy (char *verb, struct usb_device *dev)
 
 static inline void
 call_policy (char *verb, struct usb_device *dev)
-{ } 
+{ }
 
 #endif	/* CONFIG_HOTPLUG */
 
@@ -948,7 +995,7 @@ static void usb_find_drivers(struct usb_device *dev)
 				claimed++;
 		}
 	}
- 
+
 	if (rejected)
 		dbg("unhandled interfaces on device");
 
@@ -1012,7 +1059,7 @@ void usb_inc_dev_use(struct usb_device *dev)
 	atomic_inc(&dev->refcnt);
 }
 
-/* ------------------------------------------------------------------------------------- 
+/* -------------------------------------------------------------------------------------
  * New USB Core Functions
  * -------------------------------------------------------------------------------------*/
 
@@ -1098,11 +1145,13 @@ static void usb_api_blocking_completion(struct urb *urb)
 
 // Starts urb and waits for completion or timeout
 static int usb_start_wait_urb(struct urb *urb, int timeout, int* actual_length)
-{ 
+{
 	DECLARE_WAITQUEUE(wait, current);
 	struct usb_api_data awd;
 	int status;
 
+	//timeout *= 4;
+	//warn("\n******usb_start_wait_urb 1111111111111111 \n");
 	init_waitqueue_head(&awd.wqh); 	
 	awd.done = 0;
 
@@ -1152,7 +1201,7 @@ static int usb_start_wait_urb(struct urb *urb, int timeout, int* actual_length)
 
 /*-------------------------------------------------------------------*/
 // returns status (negative) or length (positive)
-int usb_internal_control_msg(struct usb_device *usb_dev, unsigned int pipe, 
+int usb_internal_control_msg(struct usb_device *usb_dev, unsigned int pipe,
 			    struct usb_ctrlrequest *cmd,  void *data, int len, int timeout)
 {
 	struct urb *urb;
@@ -1162,7 +1211,7 @@ int usb_internal_control_msg(struct usb_device *usb_dev, unsigned int pipe,
 	urb = usb_alloc_urb(0);
 	if (!urb)
 		return -ENOMEM;
-  
+
 	FILL_CONTROL_URB(urb, usb_dev, pipe, (unsigned char*)cmd, data, len,
 		   usb_api_blocking_completion, 0);
 
@@ -1188,7 +1237,7 @@ int usb_internal_control_msg(struct usb_device *usb_dev, unsigned int pipe,
  *	This function sends a simple control message to a specified endpoint
  *	and waits for the message to complete, or timeout.
  *	
- *	If successful, it returns the number of bytes transferred; 
+ *	If successful, it returns the number of bytes transferred;
  *	otherwise, it returns a negative error number.
  *
  *	Don't use this function from within an interrupt context, like a
@@ -1204,6 +1253,8 @@ int usb_control_msg(struct usb_device *dev, unsigned int pipe, __u8 request, __u
 	if (!dr)
 		return -ENOMEM;
 
+
+    //warn("\ncontrol msg:pipe = 0x%x, request = 0x%x, type = 0x%x, value = 0x%x, index=0x%x, timeout= 0x%x", pipe, request, requesttype, value, index, timeout);
 	dr->bRequestType = requesttype;
 	dr->bRequest = request;
 	dr->wValue = cpu_to_le16p(&value);
@@ -1233,14 +1284,14 @@ int usb_control_msg(struct usb_device *dev, unsigned int pipe, __u8 request, __u
  *	and waits for the message to complete, or timeout.
  *	
  *	If successful, it returns 0, otherwise a negative error number.
- *	The number of actual bytes transferred will be stored in the 
+ *	The number of actual bytes transferred will be stored in the
  *	actual_length paramater.
  *
  *	Don't use this function from within an interrupt context, like a
  *	bottom half handler.  If you need a asyncronous message, or need to
  *	send a message from within interrupt context, use usb_submit_urb()
  */
-int usb_bulk_msg(struct usb_device *usb_dev, unsigned int pipe, 
+int usb_bulk_msg(struct usb_device *usb_dev, unsigned int pipe,
 			void *data, int len, int *actual_length, int timeout)
 {
 	struct urb *urb;
@@ -1737,6 +1788,7 @@ void usb_disconnect(struct usb_device **pdev)
 	struct usb_device * dev = *pdev;
 	int i;
 
+	//iPodShuffle = 0;
 	if (!dev)
 		return;
 
@@ -1790,7 +1842,7 @@ void usb_connect(struct usb_device *dev)
 {
 	int devnum;
 	// FIXME needs locking for SMP!!
-	/* why? this is called only from the hub thread, 
+	/* why? this is called only from the hub thread,
 	 * which hopefully doesn't run on multiple CPU's simultaneously 8-)
 	 */
 	dev->descriptor.bMaxPacketSize0 = 8;  /* Start off at 8 bytes  */
@@ -1824,24 +1876,29 @@ void usb_connect(struct usb_device *dev)
 
 int usb_set_address(struct usb_device *dev)
 {
-	return usb_control_msg(dev, usb_snddefctrl(dev), USB_REQ_SET_ADDRESS,
-		0, dev->devnum, 0, NULL, 0, HZ * SET_TIMEOUT);
+	 return usb_control_msg(dev, usb_snddefctrl(dev), USB_REQ_SET_ADDRESS,
+               0, dev->devnum, 0, NULL, 0, HZ * SET_TIMEOUT);
 }
 
 int usb_get_descriptor(struct usb_device *dev, unsigned char type, unsigned char index, void *buf, int size)
 {
-	int i = 5;
 	int result;
+	int i = 2;
 	
 	memset(buf,0,size);	// Make sure we parse really received data
 
 	while (i--) {
-		if ((result = usb_control_msg(dev, usb_rcvctrlpipe(dev, 0),
+		result = usb_control_msg(dev, usb_rcvctrlpipe(dev, 0),
 			USB_REQ_GET_DESCRIPTOR, USB_DIR_IN,
-			(type << 8) + index, 0, buf, size, HZ * GET_TIMEOUT)) > 0 ||
-		     result == -EPIPE)
-			break;	/* retry if the returned length was 0; flaky device */
+			(type << 8) + index, 0, buf, size, HZ * GET_TIMEOUT);
+		if(result == 0 || result == -EPIPE)
+			continue;
+		if (result > 1 && ((u8 *)buf)[1] != type) {
+		       result = -EPROTO;
+        		continue;
+		}
 	}
+
 	return result;
 }
 
@@ -2219,6 +2276,449 @@ int usb_string(struct usb_device *dev, int index, char *buf, size_t size)
 	kfree(tbuf);
 	return err;
 }
+typedef struct
+{
+	unsigned short	idVendor;
+	unsigned short	idProduct;
+}
+product_basicInfo_t;
+
+static const product_basicInfo_t pMtpList[] = {
+  /*
+   * Creative Technology
+   * Initially the Creative devices was all we supported so these are
+   * the most thoroughly tested devices.
+   */
+  {0x041e, 0x411f}, /* "Creative Zen Vision" */
+  {0x041e, 0x4123}, /* "Creative Portable Media Center" */
+  {0x041e, 0x4128}, /* "Creative Zen Xtra (MTP mode)" */
+  {0x041e, 0x412f}, /* "Second generation Dell DJ" */
+  {0x041e, 0x4130}, /* "Creative Zen Micro (MTP mode)" */
+  {0x041e, 0x4131}, /* "Creative Zen Touch (MTP mode)"*/
+  {0x041e, 0x4132}, /* "Dell Pocket DJ (MTP mode)" */
+  {0x041e, 0x4137}, /* "Creative Zen Sleek (MTP mode)" */
+  {0x041e, 0x413c}, /* "Creative Zen MicroPhoto" */
+  {0x041e, 0x413d}, /* "Creative Zen Sleek Photo" */
+  {0x041e, 0x413e}, /* "Creative Zen Vision:M" */
+  // Reported by marazm@o2.pl
+  {0x041e, 0x4150}, /* "Creative Zen V" */
+  // Reported by danielw@iinet.net.au
+  {0x041e, 0x4151}, /* "Creative Zen Vision:M (DVP-HD0004)" */
+  // Reported by Darel on the XNJB forums
+  {0x041e, 0x4152}, /* "Creative Zen V Plus" */
+  {0x041e, 0x4153}, /* "Creative Zen Vision W" */
+
+  /*
+   * Samsung
+   * We suspect that more of these are dual mode.
+   */
+  // From libgphoto2
+  {0x04e8, 0x502e}, /* "Samsung YH-820" */
+  // Contributed by polux2001@users.sourceforge.net
+  {0x04e8, 0x502f}, /* "Samsung YH-925(-GS)" */
+  // Contributed by aronvanammers on SourceForge
+  {0x04e8, 0x5024}, /* "Samsung YH-925GS" */
+  // Contributed by anonymous person on SourceForge
+  {0x04e8, 0x5047}, /* "Samsung YP-T7J" */
+  // Reported by cstrickler@gmail.com
+  {0x04e8, 0x5054}, /* "Samsung YP-U2J (YP-U2JXB/XAA)" */
+  // Reported by Andrew Benson
+  // Reported by Patrick <skibler@gmail.com>
+  {0x04e8, 0x505a}, /*  "Samsung YP-K5" DEVICE_FLAG_NO_ZERO_READS */
+  // Reported by Matthew Wilcox <matthew@wil.cx>
+  {0x04e8, 0x507f}, /* "Samsung YP-T9" */
+  // From Paul Clinch
+  {0x04e8, 0x5081}, /* "Samsung YP-K3" */
+  // From a rouge .INF file
+  {0x04e8, 0x5a0f}, /*  "Samsung YH-999 Portable Media Center" */
+  // From Lionel Bouton
+  {0x04e8, 0x6702}, /*  "Samsung X830 Mobile Phone" */
+  // From XNJB user
+  {0x04e8, 0x503c}, /* "Samsung YP-Z5" */
+
+  /*
+   * Intel
+   */
+  {0x045e, 0x00c9}, /* "Intel Bandon Portable Media Center" */
+
+  /*
+   * JVC
+   */
+  // From Mark Veinot
+  {0x04f1, 0x6105}, /* "JVC Alneo XA-HD500" */
+
+  /*
+   * Philips
+   */
+  {0x0471, 0x0177}, /* "Philips SA13xx", */
+  {0x0471, 0x0179}, /*  "Philips PSA246", */
+  // From libgphoto2 source
+  {0x0471, 0x01eb}, /* "Philips HDD6320" */
+  {0x0471, 0x014b}, /* "Philips HDD6320/00 & HDD6330/17" */
+  // Anonymous SourceForge user
+  {0x0471, 0x014c}, /*  "Philips HDD1630/17" */
+  // from discussion forum
+  {0x0471, 0x014d}, /* "Philips HDD085/00" */
+  // from XNJB forum
+  {0x0471, 0x014f}, /* "Philips GoGear SA9200" */
+
+  // From Gerhard Mekenkamp
+  {0x0471, 0x0165}, /*  "Philips GoGear Audio" */
+  {0x0471, 0x016f}, /* "Philips SA4100 GoGear" */
+  // from XNJB user
+  {0x0471, 0x0181}, /* "Philips PSA612" */
+  {0x0471, 0x0842}, /* "Philips SA4000 range" */
+  {0x0471, 0x0846}, /* "Philips SA93xx" */
+  {0x0471, 0x0857}, /* "Philips SA51xx" */
+  {0x0471, 0x084e}, /* "Philips SA60xx" */
+  {0x0471, 0x0848}, /* "Philips SA411x" */
+  {0x0471, 0x7e01}, /* "Philips PSA232" */
+
+
+  /*
+   * iRiver
+   * we assume that PTP_OC_MTP_GetObjPropList is essentially
+   * broken on all iRiver devices, meaning it simply won't return
+   * all properties for a file when asking for metadata 0xffffffff. 
+   * Please test on your device if you believe it isn't broken!
+   * Some devices from http://www.mtp-ums.net/viewdeviceinfo.php
+   */
+  {0x1006, 0x4002}, /* "iRiver Portable Media Center"  DEVICE_FLAG_BROKEN_MTPGETOBJPROPLIST | DEVICE_FLAG_NO_ZERO_READS | DEVICE_FLAG_IRIVER_OGG_ALZHEIMER */
+  {0x1006, 0x4003}, /* "iRiver Portable Media Center"  DEVICE_FLAG_BROKEN_MTPGETOBJPROPLIST | DEVICE_FLAG_NO_ZERO_READS | DEVICE_FLAG_IRIVER_OGG_ALZHEIMER */
+  // From libgphoto2 source
+  {0x4102, 0x1113}, /* "iRiver T10", 0x4102, 0x1113,   DEVICE_FLAG_BROKEN_MTPGETOBJPROPLIST | DEVICE_FLAG_NO_ZERO_READS | DEVICE_FLAG_IRIVER_OGG_ALZHEIMER  */
+  {0x4102, 0x1114}, /* "iRiver T20 FM", DEVICE_FLAG_BROKEN_MTPGETOBJPROPLIST | DEVICE_FLAG_NO_ZERO_READS | DEVICE_FLAG_IRIVER_OGG_ALZHEIMER */
+  // This appears at the MTP-UMS site
+  {0x4102, 0x1115}, /* "iRiver T20" DEVICE_FLAG_BROKEN_MTPGETOBJPROPLIST | DEVICE_FLAG_NO_ZERO_READS | DEVICE_FLAG_IRIVER_OGG_ALZHEIMER */
+  {0x4102, 0x1116}, /* "iRiver U10" DEVICE_FLAG_BROKEN_MTPGETOBJPROPLIST | DEVICE_FLAG_NO_ZERO_READS | DEVICE_FLAG_IRIVER_OGG_ALZHEIMER */
+  {0x4102, 0x1117}, /* "iRiver T10" DEVICE_FLAG_BROKEN_MTPGETOBJPROPLIST | DEVICE_FLAG_NO_ZERO_READS | DEVICE_FLAG_IRIVER_OGG_ALZHEIMER */
+  {0x4102, 0x1118}, /* "iRiver T20" DEVICE_FLAG_BROKEN_MTPGETOBJPROPLIST | DEVICE_FLAG_NO_ZERO_READS | DEVICE_FLAG_IRIVER_OGG_ALZHEIMER */
+  {0x4102, 0x1119}, /* "iRiver T30" DEVICE_FLAG_BROKEN_MTPGETOBJPROPLIST | DEVICE_FLAG_NO_ZERO_READS | DEVICE_FLAG_IRIVER_OGG_ALZHEIMER */
+  // Reported by David Wolpoff
+  {0x4102, 0x1120}, /* "iRiver T10 2GB" DEVICE_FLAG_BROKEN_MTPGETOBJPROPLIST | DEVICE_FLAG_NO_ZERO_READS | DEVICE_FLAG_IRIVER_OGG_ALZHEIMER */
+  // Rough guess this is the MTP device ID...
+  {0x4102, 0x1122}, /* "iRiver N12" DEVICE_FLAG_BROKEN_MTPGETOBJPROPLIST | DEVICE_FLAG_NO_ZERO_READS | DEVICE_FLAG_IRIVER_OGG_ALZHEIMER */
+  // Reported by Adam Torgerson
+  {0x4102, 0x112a}, /* "iRiver Clix" DEVICE_FLAG_NO_ZERO_READS | DEVICE_FLAG_IRIVER_OGG_ALZHEIMER */
+  // Reported by Scott Call
+  {0x4102, 0x2101}, /* "iRiver H10 20GB" DEVICE_FLAG_BROKEN_MTPGETOBJPROPLIST | DEVICE_FLAG_NO_ZERO_READS | DEVICE_FLAG_IRIVER_OGG_ALZHEIMER */
+  {0x4102, 0x2102}, /* "iRiver H10" DEVICE_FLAG_BROKEN_MTPGETOBJPROPLIST | DEVICE_FLAG_NO_ZERO_READS | DEVICE_FLAG_IRIVER_OGG_ALZHEIMER */
+
+  /*
+   * Dell
+   */
+  {0x413c, 0x4500}, /* "Dell DJ Itty" */
+  
+  /*
+   * Toshiba
+   */
+  {0x0930, 0x0009}, /* "Toshiba Gigabeat MEGF-40" */
+  {0x0930, 0x000c}, /* "Toshiba Gigabeat" */
+  // Reported by Nicholas Tripp
+  {0x0930, 0x000f}, /* "Toshiba Gigabeat P20" */
+  // From libgphoto2
+  {0x0930, 0x0010}, /* "Toshiba Gigabeat S" */
+  // Reported by Rob Brown
+  {0x0930, 0x0011}, /* "Toshiba Gigabeat P10" */
+  
+  /*
+   * Archos
+   */
+  // Reported by gudul1@users.sourceforge.net
+  {0x0e79, 0x120a}, /* "Archos 104 (MTP mode)" */
+  // Added by Jan Binder
+  {0x0e79, 0x1208}, /* "Archos XS202 (MTP mode)" */
+
+  /*
+   * Dunlop (OEM of EGOMAN ltd?) reported by Nanomad
+   * This unit is falsely detected as USB mass storage in Linux
+   * prior to kernel 2.6.19 (fixed by patch from Alan Stern)
+   * so on older kernels special care is needed to remove the
+   * USB mass storage driver that erroneously binds to the device
+   * interface.
+   */
+  {0x10d6, 0x2200}, /* "Dunlop MP3 player 1GB / EGOMAN MD223AFD" */
+  
+  /*
+   * Microsoft
+   */
+  // Reported by Farooq Zaman
+  {0x045e, 0x0710}, /* "Microsoft Zune" */
+  
+  /*
+   * Sirius
+   */
+  {0x18f6, 0x0102}, /*  "Sirius Stiletto" */
+
+  /*
+   * Canon
+   * This is actually a camera, but it has a Microsoft device descriptor
+   * and reports itself as supporting the MTP extension.
+   */
+  {0x04a9, 0x3139}, /* "Canon PowerShot A640 (PTP/MTP mode)" */
+
+  /*
+   * Nokia
+   */
+  {0x0421, 0x04e1}, /* "Nokia Mobile Phones (MTP mode)" */
+
+  /*
+   * LOGIK
+   * Sold in the UK, seem to be manufactured by CCTech in China.
+   */
+  {0x13d1, 0x7002}, /* "Logik LOG DAX MP3 and DAB Player" */
+
+  /*
+   * Other strange stuff.
+   */
+  {0x0b20, 0xddee}, /* "Isabella's prototype" */
+  {0,0}	//end of list
+};
+
+static const product_basicInfo_t pMtpList4Dual[] = {
+	{0x04e8, 0x5057}, /* "Samsung YP-F2J" DEVICE_FLAG_DUALMODE */
+  /*
+   * SanDisk
+   * several devices (c150 for sure) are definately dual-mode and must 
+   * have the USB mass storage driver that hooks them unloaded first.
+   */
+  // Reported by Brian Robison
+  {0x0781, 0x7400}, /* "SanDisk Sansa m230/m240" DEVICE_FLAG_UNLOAD_DRIVER */
+  // Reported by tangent_@users.sourceforge.net
+  {0x0781, 0x7410}, /* "SanDisk Sansa c150" DEVICE_FLAG_UNLOAD_DRIVER */
+  // From libgphoto2 source
+  {0x0781, 0x7420}, /* "SanDisk Sansa e200" DEVICE_FLAG_UNLOAD_DRIVER */
+  // Reported by gonkflea@users.sourceforge.net
+  {0x0781, 0x7430}, /* "SanDisk Sansa e260" DEVICE_FLAG_UNLOAD_DRIVER */
+  // Reported by anonymous user at sourceforge.net
+  {0x0781, 0x7450}, /* "SanDisk Sansa c250" DEVICE_FLAG_UNLOAD_DRIVER */
+  // Reported by XNJB user
+  {0x0781, 0x7421}, /*"SanDisk Sansa c250"DEVICE_FLAG_UNLOAD_DRIVER */
+  {0x0471, 0x0165},
+	{0,0}	//end of list
+};
+
+/*
+ *This is function to probe usb bus for MTP device. If it is MTP device, we do not check current driver availability.
+ * And force device class as MTP class.
+ *
+ */
+static int pId = 0;
+static int vId = 0;
+static int probe_usb_bus_for_mtp_devices(struct usb_device *dev)
+{
+    unsigned char   buf[1024], cmd;
+    int             ret, i;
+	warn("\nUSB device\n\tVendor ID: 0x%x\n\tProduct ID: 0x%x", dev->descriptor.idVendor, dev->descriptor.idProduct);
+	warn("\nDevice info:\n\tdeviceClass: %d\n\tsubClass: %d\n\tdeviceProtocol: %d\n",
+			    dev->descriptor.bDeviceClass,
+			    dev->descriptor.bDeviceSubClass,
+			    dev->descriptor.bDeviceProtocol);
+
+	warn("\n\t***** Check MTP ver 1.00.06 *****\n");
+
+	/* how to probe a MTP device ? */
+	/*
+	we only process the device that has
+	1. USB_CLASS_VENDOR_SPEC 
+	2. or USB_CLASS_MASS_STORAGE 
+	3. or USB_CLASS_PER_INTERFACE with interface class USB_CLASS_VENDOR_SPEC or USB_CLASS_MASS_STORAGE
+	4. specific device in our MTP database. Check with vid and pid
+	*/
+	/* check class code first */
+	if (iPodShuffle == 1)
+	{
+		return	0;
+	}
+	if (dev->descriptor.bDeviceClass == USB_CLASS_STILL_IMAGE)
+	{
+		/* this is PTP device */
+		return	1;
+	}
+    if (dev->descriptor.bDeviceClass == USB_CLASS_MASS_STORAGE)
+    {
+        goto check_4_DuFuncs;
+    }
+	if ((dev->descriptor.bDeviceClass == USB_CLASS_VENDOR_SPEC)
+		|| (dev->descriptor.bDeviceClass ==USB_CLASS_APP_SPEC))
+		goto	check_4_mtp;
+
+	if (dev->descriptor.bDeviceClass == USB_CLASS_PER_INTERFACE)
+	{
+		int	interface;
+		int alt;
+		int check = dev->actconfig->bNumInterfaces;
+		if (check > 4)
+		{
+			check = 4;
+		}
+		for (interface= 0; interface < check; interface ++)
+		{
+			alt = dev->actconfig->interface [interface].act_altsetting;
+		    warn("\n\nDevice interface %d info:\n Class=%d, subClass=%d, deviceProtocol=%d\n\n\n",
+				interface,
+			    dev->actconfig->interface [interface].altsetting [alt].bInterfaceClass,
+			    dev->actconfig->interface [interface].altsetting [alt].bInterfaceSubClass,
+			    dev->actconfig->interface [interface].altsetting [alt].bInterfaceProtocol);
+
+			if (dev->actconfig->interface [interface].altsetting [alt].bInterfaceClass == USB_CLASS_STILL_IMAGE)
+			{
+				return	1;
+			}
+			if ((dev->actconfig->interface [interface].altsetting [alt].bInterfaceClass == USB_CLASS_VENDOR_SPEC)
+				||(dev->actconfig->interface [interface].altsetting [alt].bInterfaceClass == USB_CLASS_APP_SPEC)
+				)
+			{
+				goto	check_4_mtp;
+			}
+			if (dev->actconfig->interface [interface].altsetting [alt].bInterfaceClass == USB_CLASS_MASS_STORAGE)
+			{
+				/* storage May*/
+				goto	check_4_DuFuncs;
+			}
+		}
+	}
+	/* check the list table */
+	for (i = 0; ; i++)
+	{
+		if (pMtpList[i].idVendor == 0)
+		{
+			break;
+		}
+		if ((dev->descriptor.idVendor == pMtpList[i].idVendor) && (dev->descriptor.idProduct == pMtpList[i].idProduct))
+			return	1;
+	}
+	return	0;
+check_4_DuFuncs:
+	/* in this point, we will check device support du function or not */
+	warn("Storage class with iConfiguration = %d", dev->config->iConfiguration);
+	if (dev->config->iConfiguration != 0)
+	{
+		goto	check_4_mtp;
+	}
+	/* please add dual function check here !!!!, we need this for Sansa m230 512MB */
+	for (i=0; ; i++)
+	{
+		if (pMtpList4Dual[i].idVendor == 0)
+		{
+			break;
+		}
+		if (dev->descriptor.idVendor == pMtpList4Dual[i].idVendor && dev->descriptor.idProduct == pMtpList4Dual[i].idProduct)
+		{
+			warn("\nThe device supports both MSC and MTP");
+			goto check_4_mtp;
+		}
+	}
+	return	0;
+check_4_mtp:
+    // Read the special descripor, if possible...
+//	warn("\n*********Check MTP\n");
+	if (vId == dev->descriptor.idVendor && pId == dev->descriptor.idProduct)
+	{
+		return	0;
+	}
+    ret = usb_get_descriptor(dev, USB_DT_STRING, 0xee, buf, sizeof(buf));
+
+	if (-ETIMEDOUT == ret)
+	{
+		/* timeout for this device. H/W reset */
+		vId = dev->descriptor.idVendor;
+		pId = dev->descriptor.idProduct;
+		return	-1;
+	}
+    if (ret < 10)
+	{
+		warn("fail to get descriptor");
+        return	0;
+    }
+#if 0
+    {
+        int j;
+        warn("\n\ndesc info = ");
+        for (j=0; j < ret; j++)
+        {
+            warn("0x%x 0x%x ", buf[2*j],buf[2*j+1]);
+        }
+        warn("\n\ndesc end\n ");
+    }
+#endif
+    // It is atleast 10 bytes...
+    if (!((buf[2] == 'M') && (buf[4]=='S') && (buf[6]=='F') && (buf[8]=='T')))
+    {
+        return	0;
+    }
+
+    /* this is for Sndisk player: Sansa M230 */
+    if (dev->descriptor.idVendor == 0x781
+        && dev->descriptor.idProduct == 0x7400
+        && dev->descriptor.bcdDevice == 0x328)
+    {
+        return	1;
+    }
+    cmd = buf[16];
+
+    ret = usb_control_msg(
+                dev,
+                usb_rcvctrlpipe(dev,0),
+                cmd,
+                USB_TYPE_VENDOR | USB_RECIP_DEVICE | USB_DIR_IN,
+                0,
+                4,
+                (char *) buf,
+                sizeof(buf),
+                1000);
+//    warn("\n\nusb_control_msg result = 0x%x", ret);
+#if 0
+	if (ret < 0)
+    {
+        /* please check if sandisk player */
+        warn("\n Please check USB device firmware. \n");
+        goto exit;
+    }
+#endif
+	if (ret >= 0x15)
+    {
+	    if ((buf[0x12] != 'M') || (buf[0x13] != 'T') || (buf[0x14] != 'P'))
+        {
+            return	0;
+	    }
+        else
+        {
+        }
+    }
+    else
+    {
+    	// Not MTP or broken
+
+		return	0;
+    }
+#if 0
+	ret = usb_control_msg(
+                dev,
+                usb_rcvctrlpipe(dev,0),
+                cmd,
+                USB_TYPE_VENDOR | USB_RECIP_DEVICE | USB_DIR_IN,
+                0,
+                5,
+                (char *) buf,
+                sizeof(buf),
+                1000);
+
+#endif
+#if 0
+	/* ignore the checking for Toshiba Mobile Audio Player */
+	if (ret < 15)
+    {
+        return	0;
+    }
+	if ((buf[0x12] == 'M') && (buf[0x13] == 'T') == (buf[0x14] == 'P'))
+    {
+        return	1;
+	}
+    return  0;
+#endif
+	return	1;
+}
 
 /*
  * By the time we get here, the device has gotten a new device ID
@@ -2259,6 +2759,15 @@ int usb_new_device(struct usb_device *dev)
 		dev->devnum = -1;
 		return 1;
 	}
+	{
+#define GET_DESCRIPTOR_BUFSIZE	64
+		struct usb_device_descriptor *buf;
+		buf = kmalloc(GET_DESCRIPTOR_BUFSIZE, GFP_NOIO);
+ 		usb_control_msg(dev, usb_rcvctrlpipe(dev, 0),
+			USB_REQ_GET_DESCRIPTOR, USB_DIR_IN,
+			USB_DT_DEVICE << 8, 0, buf, GET_DESCRIPTOR_BUFSIZE, HZ * GET_TIMEOUT);
+	}
+
 	dev->epmaxpacketin [0] = dev->descriptor.bMaxPacketSize0;
 	dev->epmaxpacketout[0] = dev->descriptor.bMaxPacketSize0;
 
@@ -2274,7 +2783,6 @@ int usb_new_device(struct usb_device *dev)
 		dev->devnum = -1;
 		return 1;
 	}
-
 	err = usb_get_configuration(dev);
 	if (err < 0) {
 		err("unable to get device %d configuration (error=%d)",
@@ -2283,7 +2791,6 @@ int usb_new_device(struct usb_device *dev)
 		dev->devnum = -1;
 		return 1;
 	}
-
 	/* we set the default configuration here */
 	err = usb_set_configuration(dev, dev->config[0].bConfigurationValue);
 	if (err) {
@@ -2306,10 +2813,53 @@ int usb_new_device(struct usb_device *dev)
 #endif
 
 	/* now that the basic setup is over, add a /proc/bus/usb entry */
+	if ((dev->descriptor.idProduct == 0x1301)&&(dev->descriptor.idVendor == 0x5ac))
+	{
+		iPodShuffle = 1;
+		//warn("\nThis is an iPodShuffer");
+	}
+	else
+	{
+		iPodShuffle = 0;
+		//warn("\nThis is not an iPodShuffer");
+	}
 	usbdevfs_add_device(dev);
 
-	/* find drivers willing to handle this device */
-	usb_find_drivers(dev);
+#if 0
+    warn ("\nManufacturer: %x", dev->descriptor.iManufacturer);
+    warn ("\niProduct: %x", dev->descriptor.iProduct);
+    warn ("\nSerialNumber: %x", dev->descriptor.iSerialNumber);
+	warn ("\n\nPRODUCT=%x/%x/%x",
+		dev->descriptor.idVendor,
+		dev->descriptor.idProduct,
+		dev->descriptor.bcdDevice);
+
+    warn("\n\nZZ: deviceClass=%d, subClass=%d, deviceProtocol=%d\n\n\n",
+			    dev->descriptor.bDeviceClass,
+			    dev->descriptor.bDeviceSubClass,
+			    dev->descriptor.bDeviceProtocol);
+	warn("\n\nZZ: dev->actconfig->bNumInterfaces=%d", dev->actconfig->bNumInterfaces);
+#endif
+
+    switch(probe_usb_bus_for_mtp_devices(dev))
+	{
+	case	-1:
+		return	1;
+
+	case	1:
+        dev->descriptor.bDeviceClass = USB_CLASS_VENDOR_SPEC_MTP;
+		break;
+	default:
+		/* find drivers willing to handle this device */
+	    usb_find_drivers(dev);
+    }
+#if 0
+    warn("\n\n\ZZ111111111: deviceClass=%d, subClass=%d, deviceProtocol=%d\n\n\n",
+			    dev->descriptor.bDeviceClass,
+			    dev->descriptor.bDeviceSubClass,
+			    dev->descriptor.bDeviceProtocol);
+
+#endif
 
 	/* userspace may load modules and/or configure further */
 	call_policy ("add", dev);

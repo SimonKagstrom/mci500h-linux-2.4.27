@@ -17,6 +17,8 @@
 
 #ifdef __KERNEL__
 
+#include <linux/kernel.h>	/* WRITE_FIX macro */
+
 #define smp_mb__before_clear_bit()	do { } while (0)
 #define smp_mb__after_clear_bit()	do { } while (0)
 
@@ -27,21 +29,24 @@ extern void set_bit(int nr, volatile void * addr);
 
 static inline void __set_bit(int nr, volatile void *addr)
 {
-	((unsigned char *) addr)[nr >> 3] |= (1U << (nr & 7));
+	unsigned char newval = 	((unsigned char *) addr)[nr >> 3] | (1U << (nr & 7));
+	WRITE_FIX( ((unsigned char *) addr)[nr >> 3], newval);
 }
 
 extern void clear_bit(int nr, volatile void * addr);
 
 static inline void __clear_bit(int nr, volatile void *addr)
 {
-	((unsigned char *) addr)[nr >> 3] &= ~(1U << (nr & 7));
+	unsigned char newval = 	((unsigned char *) addr)[nr >> 3] & ~(1U << (nr & 7));
+	WRITE_FIX( ((unsigned char *) addr)[nr >> 3], newval);
 }
 
 extern void change_bit(int nr, volatile void * addr);
 
 static inline void __change_bit(int nr, volatile void *addr)
 {
-	((unsigned char *) addr)[nr >> 3] ^= (1U << (nr & 7));
+	unsigned char newval = 	((unsigned char *) addr)[nr >> 3] ^ (1U << (nr & 7));
+	WRITE_FIX( ((unsigned char *) addr)[nr >> 3], newval);
 }
 
 extern int test_and_set_bit(int nr, volatile void * addr);
@@ -52,7 +57,7 @@ static inline int __test_and_set_bit(int nr, volatile void *addr)
 	unsigned int oldval;
 
 	oldval = ((unsigned char *) addr)[nr >> 3];
-	((unsigned char *) addr)[nr >> 3] = oldval | mask;
+	WRITE_FIX( ((unsigned char *) addr)[nr >> 3], oldval | mask);
 	return oldval & mask;
 }
 
@@ -64,7 +69,7 @@ static inline int __test_and_clear_bit(int nr, volatile void *addr)
 	unsigned int oldval;
 
 	oldval = ((unsigned char *) addr)[nr >> 3];
-	((unsigned char *) addr)[nr >> 3] = oldval & ~mask;
+	WRITE_FIX( ((unsigned char *) addr)[nr >> 3], oldval & ~mask);
 	return oldval & mask;
 }
 
@@ -76,7 +81,7 @@ static inline int __test_and_change_bit(int nr, volatile void *addr)
 	unsigned int oldval;
 
 	oldval = ((unsigned char *) addr)[nr >> 3];
-	((unsigned char *) addr)[nr >> 3] = oldval ^ mask;
+	WRITE_FIX( ((unsigned char *) addr)[nr >> 3], oldval ^ mask);
 	return oldval & mask;
 }
 

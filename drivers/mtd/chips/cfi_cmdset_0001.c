@@ -4,7 +4,7 @@
  *
  * (C) 2000 Red Hat. GPL'd
  *
- * $Id: cfi_cmdset_0001.c,v 1.114 2003/03/18 12:28:40 dwmw2 Exp $
+ * $Id: cfi_cmdset_0001.c,v 1.131 2003/10/22 18:30:01 thayne Exp $
  *
  * 
  * 10/10/2000	Nicolas Pitre <nico@cam.org>
@@ -21,6 +21,7 @@
 #include <linux/types.h>
 #include <linux/kernel.h>
 #include <linux/sched.h>
+#include <linux/init.h>
 #include <asm/io.h>
 #include <asm/byteorder.h>
 
@@ -29,10 +30,14 @@
 #include <linux/delay.h>
 #include <linux/interrupt.h>
 #include <linux/mtd/map.h>
-#include <linux/mtd/cfi.h>
+#include <linux/mtd/mtd.h>
 #include <linux/mtd/compatmac.h>
+#include <linux/mtd/cfi.h>
 
-// debugging, turns off buffer write mode #define FORCE_WORD_WRITE
+/* #define CMDSET0001_DISABLE_ERASE_SUSPEND_ON_WRITE */
+
+// debugging, turns off buffer write mode if set to 1
+#define FORCE_WORD_WRITE 0
 
 static int cfi_intelext_read (struct mtd_info *, loff_t, size_t, size_t *, u_char *);
 static int cfi_intelext_read_user_prot_reg (struct mtd_info *, loff_t, size_t, size_t *, u_char *);
@@ -52,16 +57,21 @@ struct mtd_info *cfi_cmdset_0001(struct map_info *, int);
 
 static struct mtd_info *cfi_intelext_setup (struct map_info *);
 
-static int do_point (struct mtd_info *mtd, loff_t from, size_t len,
+static int cfi_intelext_point (struct mtd_info *mtd, loff_t from, size_t len,
 		     size_t *retlen, u_char **mtdbuf);
-static void do_unpoint (struct mtd_info *mtd, u_char *addr, loff_t from,
+static void cfi_intelext_unpoint (struct mtd_info *mtd, u_char *addr, loff_t from,
 			size_t len);
 
+
+/*
+ *  *********** SETUP AND PROBE BITS  ***********
+ */
+
 static struct mtd_chip_driver cfi_intelext_chipdrv = {
-	probe: NULL, /* Not usable directly */
-	destroy: cfi_intelext_destroy,
-	name: "cfi_cmdset_0001",
-	module: THIS_MODULE
+	.probe		= NULL, /* Not usable directly */
+	.destroy	= cfi_intelext_destroy,
+	.name		= "cfi_cmdset_0001",
+	.module		= THIS_MODULE
 };
 
 /* #define DEBUG_LOCK_BITS */
@@ -102,12 +112,62 @@ static void cfi_tell_features(struct cfi_pri_intelext *extp)
 	}
 	
 	printk("  Vcc Logic Supply Optimum Program/Erase Voltage: %d.%d V\n", 
-	       extp->VccOptimal >> 8, extp->VccOptimal & 0xf);
+	       extp->VccOptimal >> 4, extp->VccOptimal & 0xf);
 	if (extp->VppOptimal)
 		printk("  Vpp Programming Supply Optimum Program/Erase Voltage: %d.%d V\n", 
-		       extp->VppOptimal >> 8, extp->VppOptimal & 0xf);
+		       extp->VppOptimal >> 4, extp->VppOptimal & 0xf);
 }
 #endif
+
+#ifdef CMDSET0001_DISABLE_ERASE_SUSPEND_ON_WRITE
+/* Some Intel Strata Flash prior to FPO revision C has bugs in this area */ 
+static void fixup_intel_strataflash(struct map_info *map, void* param)
+{
+	struct cfi_private *cfi = map->fldrv_priv;
+	struct cfi_pri_amdstd *extp = cfi->cmdset_priv;
+
+	printk(KERN_WARNING "cfi_cmdset_0001: Suspend "
+	                    "erase on write disabled.\n");
+	extp->SuspendCmdSupport &= ~1;
+}
+#endif
+
+static void fixup_st_m28w320ct(struct map_info *map, void* param)
+{
+	struct cfi_private *cfi = map->fldrv_priv;
+	
+	cfi->cfiq->BufWriteTimeoutTyp = 0;	/* Not supported */
+	cfi->cfiq->BufWriteTimeoutMax = 0;	/* Not supported */
+}
+
+static void fixup_st_m28w320cb(struct map_info *map, void* param)
+{
+	struct cfi_private *cfi = map->fldrv_priv;
+	
+	/* Note this is done after the region info is endian swapped */
+	cfi->cfiq->EraseRegionInfo[1] =
+		(cfi->cfiq->EraseRegionInfo[1] & 0xffff0000) | 0x3e;
+};
+
+static struct cfi_fixup fixup_table[] = {
+#ifdef CMDSET0001_DISABLE_ERASE_SUSPEND_ON_WRITE
+	{
+		CFI_MFR_ANY, CFI_ID_ANY,
+		fixup_intel_strataflash, NULL
+	}, 
+#endif
+	{
+		0x0020,	/* STMicroelectronics */
+		0x00ba,	/* M28W320CT */
+		fixup_st_m28w320ct, NULL
+	}, {
+		0x0020,	/* STMicroelectronics */
+		0x00bb,	/* M28W320CB */
+		fixup_st_m28w320cb, NULL
+	}, {
+		0, 0, NULL, NULL
+	}
+};
 
 /* This routine is made available to other mtd code via
  * inter_module_register.  It must only be accessed through
@@ -120,7 +180,6 @@ struct mtd_info *cfi_cmdset_0001(struct map_info *map, int primary)
 {
 	struct cfi_private *cfi = map->fldrv_priv;
 	int i;
-	__u32 base = cfi->chips[0].start;
 
 	if (cfi->cfi_mode == CFI_MODE_CFI) {
 		/* 
@@ -130,40 +189,20 @@ struct mtd_info *cfi_cmdset_0001(struct map_info *map, int primary)
 		 */
 		__u16 adr = primary?cfi->cfiq->P_ADR:cfi->cfiq->A_ADR;
 		struct cfi_pri_intelext *extp;
-		int ofs_factor = cfi->interleave * cfi->device_type;
 
-		//printk(" Intel/Sharp Extended Query Table at 0x%4.4X\n", adr);
-		if (!adr)
+		extp = (struct cfi_pri_intelext*)cfi_read_pri(map, adr, sizeof(*extp), "Intel/Sharp");
+		if (!extp)
 			return NULL;
-
-		/* Switch it into Query Mode */
-		cfi_send_gen_cmd(0x98, 0x55, base, map, cfi, cfi->device_type, NULL);
-
-		extp = kmalloc(sizeof(*extp), GFP_KERNEL);
-		if (!extp) {
-			printk(KERN_ERR "Failed to allocate memory\n");
-			return NULL;
-		}
-		
-		/* Read in the Extended Query Table */
-		for (i=0; i<sizeof(*extp); i++) {
-			((unsigned char *)extp)[i] = 
-				cfi_read_query(map, (base+((adr+i)*ofs_factor)));
-		}
-		
-		if (extp->MajorVersion != '1' || 
-		    (extp->MinorVersion < '0' || extp->MinorVersion > '3')) {
-			printk(KERN_WARNING "  Unknown IntelExt Extended Query "
-			       "version %c.%c.\n",  extp->MajorVersion,
-			       extp->MinorVersion);
-			kfree(extp);
-			return NULL;
-		}
 		
 		/* Do some byteswapping if necessary */
 		extp->FeatureSupport = le32_to_cpu(extp->FeatureSupport);
 		extp->BlkStatusRegMask = le16_to_cpu(extp->BlkStatusRegMask);
 		extp->ProtRegAddr = le16_to_cpu(extp->ProtRegAddr);
+
+		/* Install our own private info structure */
+		cfi->cmdset_priv = extp;	
+
+		cfi_fixup(map, fixup_table);
 			
 #ifdef DEBUG_CFI_FEATURES
 		/* Tell the user about it in lots of lovely detail */
@@ -171,18 +210,8 @@ struct mtd_info *cfi_cmdset_0001(struct map_info *map, int primary)
 #endif	
 
 		if(extp->SuspendCmdSupport & 1) {
-//#define CMDSET0001_DISABLE_ERASE_SUSPEND_ON_WRITE
-#ifdef CMDSET0001_DISABLE_ERASE_SUSPEND_ON_WRITE
-/* Some Intel Strata Flash prior to FPO revision C has bugs in this area */ 
-			printk(KERN_WARNING "cfi_cmdset_0001: Suspend "
-			       "erase on write disabled.\n");
-			extp->SuspendCmdSupport &= ~1;
-#else
 			printk(KERN_NOTICE "cfi_cmdset_0001: Erase suspend on write enabled\n");
-#endif
 		}
-		/* Install our own private info structure */
-		cfi->cmdset_priv = extp;	
 	}
 
 	for (i=0; i< cfi->numchips; i++) {
@@ -194,8 +223,6 @@ struct mtd_info *cfi_cmdset_0001(struct map_info *map, int primary)
 
 	map->fldrv = &cfi_intelext_chipdrv;
 	
-	/* Make sure it's in read mode */
-	cfi_send_gen_cmd(0xff, 0x55, base, map, cfi, cfi->device_type, NULL);
 	return cfi_intelext_setup(map);
 }
 
@@ -261,20 +288,16 @@ static struct mtd_info *cfi_intelext_setup(struct map_info *map)
 	mtd->erase = cfi_intelext_erase_varsize;
 	mtd->read = cfi_intelext_read;
 
-	if(map->point && map->unpoint){
-		mtd->point = do_point;
-		mtd->unpoint = do_unpoint;
+	if (map_is_linear(map)) {
+		mtd->point = cfi_intelext_point;
+		mtd->unpoint = cfi_intelext_unpoint;
 	}
 
-#ifndef FORCE_WORD_WRITE
-	if ( cfi->cfiq->BufWriteTimeoutTyp ) {
-		printk("Using buffer write method\n" );
+	if ( cfi->cfiq->BufWriteTimeoutTyp && !FORCE_WORD_WRITE) {
+		printk(KERN_INFO "Using buffer write method\n" );
 		mtd->write = cfi_intelext_write_buffers;
 	} else {
-#else
-	{
-#endif
-		printk("Using word write method\n" );
+		printk(KERN_INFO "Using word write method\n" );
 		mtd->write = cfi_intelext_write_words;
 	}
 	mtd->read_user_prot_reg = cfi_intelext_read_user_prot_reg;
@@ -286,8 +309,8 @@ static struct mtd_info *cfi_intelext_setup(struct map_info *map)
 	mtd->resume = cfi_intelext_resume;
 	mtd->flags = MTD_CAP_NORFLASH;
 	map->fldrv = &cfi_intelext_chipdrv;
-	MOD_INC_USE_COUNT;
 	mtd->name = map->name;
+	__module_get(THIS_MODULE);
 	return mtd;
 
  setup_err:
@@ -301,78 +324,170 @@ static struct mtd_info *cfi_intelext_setup(struct map_info *map)
 	return NULL;
 }
 
-static int do_point_onechip (struct map_info *map,  struct flchip *chip, loff_t adr, size_t len)
+/*
+ *  *********** CHIP ACCESS FUNCTIONS ***********
+ */
+
+static int get_chip(struct map_info *map, struct flchip *chip, unsigned long adr, int mode)
 {
-	cfi_word status, status_OK;
-	unsigned long timeo;
 	DECLARE_WAITQUEUE(wait, current);
+	struct cfi_private *cfi = map->fldrv_priv;
+	cfi_word status, status_OK = CMD(0x80);
+	unsigned long timeo;
+	struct cfi_pri_intelext *cfip = (struct cfi_pri_intelext *)cfi->cmdset_priv;
+
+ resettime:
+	timeo = jiffies + HZ;
+ retry:
+	switch (chip->state) {
+
+	case FL_STATUS:
+		for (;;) {
+			status = cfi_read(map, adr);
+			if ((status & status_OK) == status_OK)
+				break;
+
+			if (time_after(jiffies, timeo)) {
+				printk(KERN_ERR "Waiting for chip to be ready timed out. Status %llx\n", 
+				       (long long)status);
+				spin_unlock(chip->mutex);
+				return -EIO;
+			}
+			spin_unlock(chip->mutex);
+			cfi_udelay(1);
+			spin_lock(chip->mutex);
+			/* Someone else might have been playing with it. */
+			goto retry;
+		}
+				
+	case FL_READY:
+	case FL_CFI_QUERY:
+	case FL_JEDEC_QUERY:
+		return 0;
+
+	case FL_ERASING:
+		if (!(cfip->FeatureSupport & 2) ||
+		    !(mode == FL_READY || mode == FL_POINT ||
+		     (mode == FL_WRITING && (cfip->SuspendCmdSupport & 1))))
+			goto sleep;
+
+
+		/* Erase suspend */
+		cfi_write(map, CMD(0xB0), adr);
+
+		/* If the flash has finished erasing, then 'erase suspend'
+		 * appears to make some (28F320) flash devices switch to
+		 * 'read' mode.  Make sure that we switch to 'read status'
+		 * mode so we get the right data. --rmk
+		 */
+		cfi_write(map, CMD(0x70), adr);
+		chip->oldstate = FL_ERASING;
+		chip->state = FL_ERASE_SUSPENDING;
+		chip->erase_suspended = 1;
+		for (;;) {
+			status = cfi_read(map, adr);
+			if ((status & status_OK) == status_OK)
+			        break;
+
+			if (time_after(jiffies, timeo)) {
+				/* Urgh. Resume and pretend we weren't here.  */
+				cfi_write(map, CMD(0xd0), adr);
+				/* Make sure we're in 'read status' mode if it had finished */
+				cfi_write(map, CMD(0x70), adr);
+				chip->state = FL_ERASING;
+				chip->oldstate = FL_READY;
+				printk(KERN_ERR "Chip not ready after erase "
+				       "suspended: status = 0x%x\n", status);
+				return -EIO;
+			}
+
+			spin_unlock(chip->mutex);
+			cfi_udelay(1);
+			spin_lock(chip->mutex);
+			/* Nobody will touch it while it's in state FL_ERASE_SUSPENDING.
+			   So we can just loop here. */
+		}
+		chip->state = FL_STATUS;
+		return 0;
+
+	case FL_POINT:
+		/* Only if there's no operation suspended... */
+		if (mode == FL_READY && chip->oldstate == FL_READY)
+			return 0;
+
+	default:
+	sleep:
+		set_current_state(TASK_UNINTERRUPTIBLE);
+		add_wait_queue(&chip->wq, &wait);
+		spin_unlock(chip->mutex);
+		schedule();
+		remove_wait_queue(&chip->wq, &wait);
+		spin_lock(chip->mutex);
+		goto resettime;
+	}
+}
+
+static void put_chip(struct map_info *map, struct flchip *chip, unsigned long adr)
+{
+	struct cfi_private *cfi = map->fldrv_priv;
+
+	switch(chip->oldstate) {
+	case FL_ERASING:
+		chip->state = chip->oldstate;
+		/* What if one interleaved chip has finished and the 
+		   other hasn't? The old code would leave the finished
+		   one in READY mode. That's bad, and caused -EROFS 
+		   errors to be returned from do_erase_oneblock because
+		   that's the only bit it checked for at the time.
+		   As the state machine appears to explicitly allow 
+		   sending the 0x70 (Read Status) command to an erasing
+		   chip and expecting it to be ignored, that's what we 
+		   do. */
+		cfi_write(map, CMD(0xd0), adr);
+		cfi_write(map, CMD(0x70), adr);
+		chip->oldstate = FL_READY;
+		chip->state = FL_ERASING;
+		break;
+
+	case FL_READY:
+	case FL_STATUS:
+		/* We should really make set_vpp() count, rather than doing this */
+		DISABLE_VPP(map);
+		break;
+	default:
+		printk(KERN_ERR "put_chip() called with oldstate %d!!\n", chip->oldstate);
+	}
+	wake_up(&chip->wq);
+}
+
+static int do_point_onechip (struct map_info *map, struct flchip *chip, loff_t adr, size_t len)
+{
 	unsigned long cmd_addr;
 	struct cfi_private *cfi = map->fldrv_priv;
+	int ret = 0;
 
 	adr += chip->start;
 
 	/* Ensure cmd read/writes are aligned. */ 
 	cmd_addr = adr & ~(CFIDEV_BUSWIDTH-1); 
 
-	/* Let's determine this according to the interleave only once */
-	status_OK = CMD(0x80);
-
-	timeo = jiffies + HZ;
- retry:
 	spin_lock(chip->mutex);
 
-	/* Check that the chip's ready to talk to us.
-	 * If it's in FL_ERASING state, suspend it and make it talk now.
-	 */
-	switch (chip->state) {
+	ret = get_chip(map, chip, cmd_addr, FL_POINT);
 
-	case FL_READY:
-	case FL_POINT:
-		break;
-
-	case FL_CFI_QUERY:
-	case FL_JEDEC_QUERY:
-		cfi_write(map, CMD(0x70), cmd_addr);
-		chip->state = FL_STATUS;
-
-	case FL_STATUS:
-		status = cfi_read(map, cmd_addr);
-		if ((status & status_OK) == status_OK) {
+	if (!ret) {
+		if (chip->state != FL_POINT && chip->state != FL_READY)
 			cfi_write(map, CMD(0xff), cmd_addr);
-			chip->state = FL_READY;
-			break;
-		}
-		
-		/* Urgh. Chip not yet ready to talk to us. */
-		if (time_after(jiffies, timeo)) {
-			spin_unlock(chip->mutex);
-			printk(KERN_ERR "waiting for chip to be ready timed out in read. WSM status = %llx\n", (__u64)status);
-			return -EIO;
-		}
 
-		/* Latency issues. Drop the lock, wait a while and retry */
-		spin_unlock(chip->mutex);
-		cfi_udelay(1);
-		goto retry;
-
-	default:
-		/* Stick ourselves on a wait queue to be woken when
-		   someone changes the status */
-		set_current_state(TASK_UNINTERRUPTIBLE);
-		add_wait_queue(&chip->wq, &wait);
-		spin_unlock(chip->mutex);
-		schedule();
-		remove_wait_queue(&chip->wq, &wait);
-		timeo = jiffies + HZ;
-		goto retry;
+		chip->state = FL_POINT;
+		chip->ref_point_counter++;
 	}
-
-	chip->state = FL_POINT;
-	chip->ref_point_counter++;
 	spin_unlock(chip->mutex);
-	return 0;
+
+	return ret;
 }
-static int do_point (struct mtd_info *mtd, loff_t from, size_t len, size_t *retlen, u_char **mtdbuf)
+
+static int cfi_intelext_point (struct mtd_info *mtd, loff_t from, size_t len, size_t *retlen, u_char **mtdbuf)
 {
 	struct map_info *map = mtd->priv;
 	struct cfi_private *cfi = map->fldrv_priv;
@@ -380,19 +495,17 @@ static int do_point (struct mtd_info *mtd, loff_t from, size_t len, size_t *retl
 	int chipnum;
 	int ret = 0;
 
-	if (from + len > mtd->size)
+	if (!map->virt || (from + len > mtd->size))
 		return -EINVAL;
 	
-	*mtdbuf = map->point(map, from, len);
-	if(*mtdbuf == NULL)
-		return -EINVAL; /* can not point this region */
+	*mtdbuf = (void *)map->virt + from;
 	*retlen = 0;
 
 	/* Now lock the chip(s) to POINT state */
 
 	/* ofs: offset within the first chip that the first read should start */
 	chipnum = (from >> cfi->chipshift);
-	ofs = from - (chipnum <<  cfi->chipshift);
+	ofs = from - (chipnum << cfi->chipshift);
 
 	while (len) {
 		unsigned long thislen;
@@ -418,14 +531,13 @@ static int do_point (struct mtd_info *mtd, loff_t from, size_t len, size_t *retl
 	return 0;
 }
 
-static void do_unpoint (struct mtd_info *mtd, u_char *addr, loff_t from, size_t len)
+static void cfi_intelext_unpoint (struct mtd_info *mtd, u_char *addr, loff_t from, size_t len)
 {
 	struct map_info *map = mtd->priv;
 	struct cfi_private *cfi = map->fldrv_priv;
 	unsigned long ofs;
 	int chipnum;
 
-	map->unpoint(map, addr, from, len);
 	/* Now unlock the chip(s) POINT state */
 
 	/* ofs: offset within the first chip that the first read should start */
@@ -446,13 +558,14 @@ static void do_unpoint (struct mtd_info *mtd, u_char *addr, loff_t from, size_t 
 			thislen = len;
 
 		spin_lock(chip->mutex);
-		if(chip->state == FL_POINT){
+		if (chip->state == FL_POINT) {
 			chip->ref_point_counter--;
 			if(chip->ref_point_counter == 0)
 				chip->state = FL_READY;
 		} else
-			printk("Warning: unpoint called on non pointed region\n"); /* Should this give an error? */
-		wake_up(&chip->wq);
+			printk(KERN_ERR "Warning: unpoint called on non pointed region\n"); /* Should this give an error? */
+
+		put_chip(map, chip, chip->start);
 		spin_unlock(chip->mutex);
 
 		len -= thislen;
@@ -463,136 +576,32 @@ static void do_unpoint (struct mtd_info *mtd, u_char *addr, loff_t from, size_t 
 
 static inline int do_read_onechip(struct map_info *map, struct flchip *chip, loff_t adr, size_t len, u_char *buf)
 {
-	cfi_word status, status_OK;
-	unsigned long timeo;
-	DECLARE_WAITQUEUE(wait, current);
-	int suspended = 0;
 	unsigned long cmd_addr;
 	struct cfi_private *cfi = map->fldrv_priv;
+	int ret;
 
 	adr += chip->start;
 
 	/* Ensure cmd read/writes are aligned. */ 
 	cmd_addr = adr & ~(CFIDEV_BUSWIDTH-1); 
 
-	/* Let's determine this according to the interleave only once */
-	status_OK = CMD(0x80);
-
-	timeo = jiffies + HZ;
- retry:
 	spin_lock(chip->mutex);
+	ret = get_chip(map, chip, cmd_addr, FL_READY);
+	if (ret) {
+		spin_unlock(chip->mutex);
+		return ret;
+	}
 
-	/* Check that the chip's ready to talk to us.
-	 * If it's in FL_ERASING state, suspend it and make it talk now.
-	 */
-	switch (chip->state) {
-	case FL_ERASING:
-		if (!cfi->cmdset_priv ||
-		    !(((struct cfi_pri_intelext *)cfi->cmdset_priv)->FeatureSupport & 2))
-			goto sleep; /* We don't support erase suspend */
-		
-		cfi_write (map, CMD(0xb0), cmd_addr);
-		/* If the flash has finished erasing, then 'erase suspend'
-		 * appears to make some (28F320) flash devices switch to
-		 * 'read' mode.  Make sure that we switch to 'read status'
-		 * mode so we get the right data. --rmk
-		 */
-		cfi_write(map, CMD(0x70), cmd_addr);
-		chip->oldstate = FL_ERASING;
-		chip->state = FL_ERASE_SUSPENDING;
-		//		printk("Erase suspending at 0x%lx\n", cmd_addr);
-		for (;;) {
-			status = cfi_read(map, cmd_addr);
-			if ((status & status_OK) == status_OK)
-				break;
-			
-			if (time_after(jiffies, timeo)) {
-				/* Urgh */
-				cfi_write(map, CMD(0xd0), cmd_addr);
-				/* make sure we're in 'read status' mode */
-				cfi_write(map, CMD(0x70), cmd_addr);
-				chip->state = FL_ERASING;
-				spin_unlock(chip->mutex);
-				printk(KERN_ERR "Chip not ready after erase "
-				       "suspended: status = 0x%llx\n", (__u64)status);
-				return -EIO;
-			}
-			
-			spin_unlock(chip->mutex);
-			cfi_udelay(1);
-			spin_lock(chip->mutex);
-		}
-		
-		suspended = 1;
+	if (chip->state != FL_POINT && chip->state != FL_READY) {
 		cfi_write(map, CMD(0xff), cmd_addr);
+
 		chip->state = FL_READY;
-		break;
-	
-#if 0
-	case FL_WRITING:
-		/* Not quite yet */
-#endif
-
-	case FL_READY:
-	case FL_POINT:
-		break;
-
-	case FL_CFI_QUERY:
-	case FL_JEDEC_QUERY:
-		cfi_write(map, CMD(0x70), cmd_addr);
-		chip->state = FL_STATUS;
-
-	case FL_STATUS:
-		status = cfi_read(map, cmd_addr);
-		if ((status & status_OK) == status_OK) {
-			cfi_write(map, CMD(0xff), cmd_addr);
-			chip->state = FL_READY;
-			break;
-		}
-		
-		/* Urgh. Chip not yet ready to talk to us. */
-		if (time_after(jiffies, timeo)) {
-			spin_unlock(chip->mutex);
-			printk(KERN_ERR "waiting for chip to be ready timed out in read. WSM status = %llx\n", (__u64)status);
-			return -EIO;
-		}
-
-		/* Latency issues. Drop the lock, wait a while and retry */
-		spin_unlock(chip->mutex);
-		cfi_udelay(1);
-		goto retry;
-
-	default:
-	sleep:
-		/* Stick ourselves on a wait queue to be woken when
-		   someone changes the status */
-		set_current_state(TASK_UNINTERRUPTIBLE);
-		add_wait_queue(&chip->wq, &wait);
-		spin_unlock(chip->mutex);
-		schedule();
-		remove_wait_queue(&chip->wq, &wait);
-		timeo = jiffies + HZ;
-		goto retry;
 	}
 
-	map->copy_from(map, buf, adr, len);
+	map_copy_from(map, buf, adr, len);
 
-	if (suspended) {
-		chip->state = chip->oldstate;
-		/* What if one interleaved chip has finished and the 
-		   other hasn't? The old code would leave the finished
-		   one in READY mode. That's bad, and caused -EROFS 
-		   errors to be returned from do_erase_oneblock because
-		   that's the only bit it checked for at the time.
-		   As the state machine appears to explicitly allow 
-		   sending the 0x70 (Read Status) command to an erasing
-		   chip and expecting it to be ignored, that's what we 
-		   do. */
-		cfi_write(map, CMD(0xd0), cmd_addr);
-		cfi_write(map, CMD(0x70), cmd_addr);		
-	}
+	put_chip(map, chip, cmd_addr);
 
-	wake_up(&chip->wq);
 	spin_unlock(chip->mutex);
 	return 0;
 }
@@ -640,70 +649,52 @@ static int cfi_intelext_read_prot_reg (struct mtd_info *mtd, loff_t from, size_t
 {
 	struct map_info *map = mtd->priv;
 	struct cfi_private *cfi = map->fldrv_priv;
-	struct cfi_pri_intelext *extp=cfi->cmdset_priv;
-	int ofs_factor = cfi->interleave * cfi->device_type;
-	int   count=len;
+	struct cfi_pri_intelext *extp = cfi->cmdset_priv;
 	struct flchip *chip;
-	int chip_num,offst;
-	unsigned long timeo;
-	DECLARE_WAITQUEUE(wait, current);
+	int ofs_factor = cfi->interleave * cfi->device_type;
+	int count = len;
+	int chip_num, offst;
+	int ret;
 
-	chip=0;
+	chip_num = ((unsigned int)from/reg_sz);
+	offst = from - (reg_sz*chip_num)+base_offst;
+
+	while (count) {
 	/* Calculate which chip & protection register offset we need */
-	chip_num=((unsigned int)from/reg_sz);
-	offst=from-(reg_sz*chip_num)+base_offst;
 
-	while(count){
-		
-		if(chip_num>=cfi->numchips)
+		if (chip_num >= cfi->numchips)
 			goto out;
 
-		/* Make sure that the chip is in the right state */
-
-		timeo = jiffies + HZ;
-		chip=&cfi->chips[chip_num];
-	retry:		
-		spin_lock(chip->mutex);
-	
-		switch (chip->state) {
-		case FL_READY:
-		case FL_STATUS:
-		case FL_CFI_QUERY:
-		case FL_JEDEC_QUERY:
-			break;
+		chip = &cfi->chips[chip_num];
 		
-		default:
-				/* Stick ourselves on a wait queue to be woken when
-				   someone changes the status */
-			set_current_state(TASK_UNINTERRUPTIBLE);
-			add_wait_queue(&chip->wq, &wait);
+		spin_lock(chip->mutex);
+		ret = get_chip(map, chip, chip->start, FL_JEDEC_QUERY);
+		if (ret) {
 			spin_unlock(chip->mutex);
-			schedule();
-			remove_wait_queue(&chip->wq, &wait);
-			timeo = jiffies + HZ;
-			goto retry;
+			return (len-count)?:ret;
 		}
-			
-		/* Now read the data required from this flash */
-       
-		cfi_send_gen_cmd(0x90, 0x55,chip->start, map, cfi, cfi->device_type, NULL);
-		while(count && ((offst-base_offst)<reg_sz)){
-			*buf=map->read8(map,(chip->start+((extp->ProtRegAddr+1)*ofs_factor)+offst));
+
+		if (chip->state != FL_JEDEC_QUERY) {
+			cfi_write(map, CMD(0x90), chip->start);
+			chip->state = FL_JEDEC_QUERY;
+		}
+
+		while (count && ((offst-base_offst) < reg_sz)) {
+			*buf = map_read8(map,(chip->start+((extp->ProtRegAddr+1)*ofs_factor)+offst));
 			buf++;
 			offst++;
 			count--;
 		}
-	       
-		chip->state=FL_CFI_QUERY;
+
+		put_chip(map, chip, chip->start);
 		spin_unlock(chip->mutex);
+
 		/* Move on to the next chip */
 		chip_num++;
-		offst=base_offst;
-	
+		offst = base_offst;
 	}
 	
  out:	
-	wake_up(&chip->wq);
 	return len-count;
 }
 	
@@ -749,104 +740,29 @@ static int cfi_intelext_read_fact_prot_reg (struct mtd_info *mtd, loff_t from, s
 static int do_write_oneword(struct map_info *map, struct flchip *chip, unsigned long adr, cfi_word datum)
 {
 	struct cfi_private *cfi = map->fldrv_priv;
-	struct cfi_pri_intelext *extp = cfi->cmdset_priv;
 	cfi_word status, status_OK;
 	unsigned long timeo;
-	DECLARE_WAITQUEUE(wait, current);
-	int z, suspended=0, ret=0;
+	int z, ret=0;
 
 	adr += chip->start;
 
 	/* Let's determine this according to the interleave only once */
 	status_OK = CMD(0x80);
 
-	timeo = jiffies + HZ;
- retry:
 	spin_lock(chip->mutex);
-
-	/* Check that the chip's ready to talk to us.
-	 * Later, we can actually think about interrupting it
-	 * if it's in FL_ERASING state.
-	 * Not just yet, though.
-	 */
-	switch (chip->state) {
-	case FL_READY:
-		break;
-		
-	case FL_CFI_QUERY:
-	case FL_JEDEC_QUERY:
-		cfi_write(map, CMD(0x70), adr);
-		chip->state = FL_STATUS;
-
-	case FL_STATUS:
-		status = cfi_read(map, adr);
-		if ((status & status_OK) == status_OK)
-			break;
-		
-		/* Urgh. Chip not yet ready to talk to us. */
-		if (time_after(jiffies, timeo)) {
-			spin_unlock(chip->mutex);
-			printk(KERN_ERR "waiting for chip to be ready timed out in read\n");
-			return -EIO;
-		}
-
-		/* Latency issues. Drop the lock, wait a while and retry */
+	ret = get_chip(map, chip, adr, FL_WRITING);
+	if (ret) {
 		spin_unlock(chip->mutex);
-		cfi_udelay(1);
-		goto retry;
-
-	case FL_ERASING:
-		if (!extp || 
-		    !((extp->FeatureSupport & 2) && (extp->SuspendCmdSupport & 1)))
-			goto sleep; /* We don't support erase suspend */
-		
-		cfi_write (map, CMD(0xb0), adr);
-
-		/* If the flash has finished erasing, then 'erase suspend'
-		 * appears to make some (28F320) flash devices switch to
-		 * 'read' mode.  Make sure that we switch to 'read status'
-		 * mode so we get the right data. --rmk
-		 */
-		cfi_write(map, CMD(0x70), adr);
-		chip->oldstate = FL_ERASING;
-		chip->state = FL_ERASE_SUSPENDING;
-		for (;;) {
-			status = cfi_read(map, adr);
-			if ((status & status_OK) == status_OK)
-				break;
-			
-			if (time_after(jiffies, timeo)) {
-				/* Urgh */
-				cfi_write(map, CMD(0xd0), adr);
-				/* make sure we're in 'read status' mode */
-				cfi_write(map, CMD(0x70), adr);
-				chip->state = FL_ERASING;
-				spin_unlock(chip->mutex);
-				printk(KERN_ERR "Chip not ready after erase "
-				       "suspended: status = 0x%x\n", status);
-				return -EIO;
-			}
-			
-			spin_unlock(chip->mutex);
-			cfi_udelay(1);
-			spin_lock(chip->mutex);
-		}
-		suspended = 1;
-		chip->state = FL_STATUS;
-		break;
-
-	default:
-	sleep:
-		/* Stick ourselves on a wait queue to be woken when
-		   someone changes the status */
-		set_current_state(TASK_UNINTERRUPTIBLE);
-		add_wait_queue(&chip->wq, &wait);
-		spin_unlock(chip->mutex);
-		schedule();
-		remove_wait_queue(&chip->wq, &wait);
-		timeo = jiffies + HZ;
-		goto retry;
+		return ret;
 	}
+
+	/*
+	 * Check for a NOP for the case when the datum to write is
+	 * already present.
+	 */
+	status = cfi_read(map, adr);
+	if (status == datum)
+		goto out;
 
 	ENABLE_VPP(map);
 	cfi_write(map, CMD(0x40), adr);
@@ -862,6 +778,8 @@ static int do_write_oneword(struct map_info *map, struct flchip *chip, unsigned 
 	for (;;) {
 		if (chip->state != FL_WRITING) {
 			/* Someone's suspended the write. Sleep */
+			DECLARE_WAITQUEUE(wait, current);
+
 			set_current_state(TASK_UNINTERRUPTIBLE);
 			add_wait_queue(&chip->wq, &wait);
 			spin_unlock(chip->mutex);
@@ -879,7 +797,6 @@ static int do_write_oneword(struct map_info *map, struct flchip *chip, unsigned 
 		/* OK Still waiting */
 		if (time_after(jiffies, timeo)) {
 			chip->state = FL_STATUS;
-			DISABLE_VPP(map);
 			printk(KERN_ERR "waiting for chip to be ready timed out in word write\n");
 			ret = -EIO;
 			goto out;
@@ -908,27 +825,11 @@ static int do_write_oneword(struct map_info *map, struct flchip *chip, unsigned 
 		/* put back into read status register mode */
 		cfi_write(map, CMD(0x70), adr);
 		ret = -EROFS;
-		goto out;
 	}
  out:
-	if (suspended) {
-		chip->state = chip->oldstate;
-		/* What if one interleaved chip has finished and the 
-		   other hasn't? The old code would leave the finished
-		   one in READY mode. That's bad, and caused -EROFS 
-		   errors to be returned from do_erase_oneblock because
-		   that's the only bit it checked for at the time.
-		   As the state machine appears to explicitly allow 
-		   sending the 0x70 (Read Status) command to an erasing
-		   chip and expecting it to be ignored, that's what we 
-		   do. */
-		cfi_write(map, CMD(0xd0), adr);
-		cfi_write(map, CMD(0x70), adr);		
-	} else
-		DISABLE_VPP(map); /* must not clear the VPP if there is a suspended erase to be resumed */
-
-	wake_up(&chip->wq);
+	put_chip(map, chip, adr);
 	spin_unlock(chip->mutex);
+
 	return ret;
 }
 
@@ -1059,11 +960,9 @@ static inline int do_write_buffer(struct map_info *map, struct flchip *chip,
 				  unsigned long adr, const u_char *buf, int len)
 {
 	struct cfi_private *cfi = map->fldrv_priv;
-	struct cfi_pri_intelext *extp = cfi->cmdset_priv;
 	cfi_word status, status_OK;
 	unsigned long cmd_adr, timeo;
-	DECLARE_WAITQUEUE(wait, current);
-	int wbufsize, z, suspended=0, ret=0;
+	int wbufsize, z, ret=0, bytes, words;
 
 	wbufsize = CFIDEV_INTERLEAVE << cfi->cfiq->MaxBufWriteSize;
 	adr += chip->start;
@@ -1072,91 +971,18 @@ static inline int do_write_buffer(struct map_info *map, struct flchip *chip,
 	/* Let's determine this according to the interleave only once */
 	status_OK = CMD(0x80);
 
-	timeo = jiffies + HZ;
- retry:
 	spin_lock(chip->mutex);
-
-	/* Check that the chip's ready to talk to us.
-	 * Later, we can actually think about interrupting it
-	 * if it's in FL_ERASING state.
-	 * Not just yet, though.
-	 */
-	switch (chip->state) {
-	case FL_READY:
-	case FL_CFI_QUERY:
-	case FL_JEDEC_QUERY:
-		cfi_write(map, CMD(0x70), cmd_adr);
-		chip->state = FL_STATUS;
-
-	case FL_STATUS:
-		status = cfi_read(map, cmd_adr);
-		if ((status & status_OK) == status_OK)
-			break;
-		/* Urgh. Chip not yet ready to talk to us. */
-		if (time_after(jiffies, timeo)) {
-			spin_unlock(chip->mutex);
-			printk(KERN_ERR "waiting for chip to be ready timed out in buffer write\n");
-			return -EIO;
-		}
-
-		/* Latency issues. Drop the lock, wait a while and retry */
+	ret = get_chip(map, chip, cmd_adr, FL_WRITING);
+	if (ret) {
 		spin_unlock(chip->mutex);
-		cfi_udelay(1);
-		goto retry;
-
-	case FL_ERASING:
-		if (!extp || 
-		    !((extp->FeatureSupport & 2) && (extp->SuspendCmdSupport & 1)))
-			goto sleep; /* We don't support erase suspend */
-		
-		cfi_write (map, CMD(0xb0), adr);
-
-		/* If the flash has finished erasing, then 'erase suspend'
-		 * appears to make some (28F320) flash devices switch to
-		 * 'read' mode.  Make sure that we switch to 'read status'
-		 * mode so we get the right data. --rmk
-		 */
-		cfi_write(map, CMD(0x70), adr);
-		chip->oldstate = FL_ERASING;
-		chip->state = FL_ERASE_SUSPENDING;
-		for (;;) {
-			status = cfi_read(map, adr);
-			if ((status & status_OK) == status_OK)
-				break;
-			
-			if (time_after(jiffies, timeo)) {
-				/* Urgh */
-				cfi_write(map, CMD(0xd0), adr);
-				/* make sure we're in 'read status' mode */
-				cfi_write(map, CMD(0x70), adr);
-				chip->state = FL_ERASING;
-				spin_unlock(chip->mutex);
-				printk(KERN_ERR "Chip not ready after erase "
-				       "suspended: status = 0x%x\n", status);
-				return -EIO;
-			}
-			
-			spin_unlock(chip->mutex);
-			cfi_udelay(1);
-			spin_lock(chip->mutex);
-		}
-		suspended = 1;
-		chip->state = FL_STATUS;
-		break;
-
-	default:
-	sleep:
-		/* Stick ourselves on a wait queue to be woken when
-		   someone changes the status */
-		set_current_state(TASK_UNINTERRUPTIBLE);
-		add_wait_queue(&chip->wq, &wait);
-		spin_unlock(chip->mutex);
-		schedule();
-		remove_wait_queue(&chip->wq, &wait);
-		timeo = jiffies + HZ;
-		goto retry;
+		return ret;
 	}
-	/* We know we're now in FL_STATUS mode, and 'status' is current */
+
+	if (chip->state != FL_STATUS)
+		cfi_write(map, CMD(0x70), cmd_adr);
+
+	status = cfi_read(map, cmd_adr);
+
 	/* §4.8 of the 28FxxxJ3A datasheet says "Any time SR.4 and/or SR.5 is set
 	   [...], the device will not accept any more Write to Buffer commands". 
 	   So we must check here and reset those bits if they're set. Otherwise
@@ -1185,7 +1011,6 @@ static inline int do_write_buffer(struct map_info *map, struct flchip *chip,
 			/* Argh. Not ready for write to buffer */
 			cfi_write(map, CMD(0x70), cmd_adr);
 			chip->state = FL_STATUS;
-			DISABLE_VPP(map);
 			printk(KERN_ERR "Chip not ready for buffer write. Xstatus = %llx, status = %llx\n", (__u64)status, (__u64)cfi_read(map, cmd_adr));
 			/* Odd. Clear status bits */
 			cfi_write(map, CMD(0x50), cmd_adr);
@@ -1196,20 +1021,42 @@ static inline int do_write_buffer(struct map_info *map, struct flchip *chip,
 	}
 
 	/* Write length of data to come */
-	cfi_write(map, CMD(len/CFIDEV_BUSWIDTH-1), cmd_adr );
+	bytes = len & (CFIDEV_BUSWIDTH-1);
+	words = len / CFIDEV_BUSWIDTH;
+	cfi_write(map, CMD(words - !bytes), cmd_adr );
 
 	/* Write data */
-	for (z = 0; z < len; z += CFIDEV_BUSWIDTH) {
+	z = 0;
+	while(z < words * CFIDEV_BUSWIDTH) {
 		if (cfi_buswidth_is_1()) {
-			map->write8 (map, *((__u8*)buf)++, adr+z);
+			map_write8 (map, *((__u8*)buf)++, adr+z);
 		} else if (cfi_buswidth_is_2()) {
-			map->write16 (map, *((__u16*)buf)++, adr+z);
+			map_write16 (map, *((__u16*)buf)++, adr+z);
 		} else if (cfi_buswidth_is_4()) {
-			map->write32 (map, *((__u32*)buf)++, adr+z);
+			map_write32 (map, *((__u32*)buf)++, adr+z);
 		} else if (cfi_buswidth_is_8()) {
-			map->write64 (map, *((__u64*)buf)++, adr+z);
+			map_write64 (map, *((__u64*)buf)++, adr+z);
 		} else {
-			DISABLE_VPP(map);
+			ret = -EINVAL;
+			goto out;
+		}
+		z += CFIDEV_BUSWIDTH;
+	}
+	if (bytes) {
+		int i = 0, n = 0;
+		u_char tmp_buf[8], *tmp_p = tmp_buf;
+
+		while (bytes--)
+			tmp_buf[i++] = buf[n++];
+		while (i < CFIDEV_BUSWIDTH)
+			tmp_buf[i++] = 0xff;
+		if (cfi_buswidth_is_2()) {
+			map_write16 (map, *((__u16*)tmp_p)++, adr+z);
+		} else if (cfi_buswidth_is_4()) {
+			map_write32 (map, *((__u32*)tmp_p)++, adr+z);
+		} else if (cfi_buswidth_is_8()) {
+			map_write64 (map, *((__u64*)tmp_p)++, adr+z);
+		} else {
 			ret = -EINVAL;
 			goto out;
 		}
@@ -1227,6 +1074,7 @@ static inline int do_write_buffer(struct map_info *map, struct flchip *chip,
 	for (;;) {
 		if (chip->state != FL_WRITING) {
 			/* Someone's suspended the write. Sleep */
+			DECLARE_WAITQUEUE(wait, current);
 			set_current_state(TASK_UNINTERRUPTIBLE);
 			add_wait_queue(&chip->wq, &wait);
 			spin_unlock(chip->mutex);
@@ -1244,7 +1092,6 @@ static inline int do_write_buffer(struct map_info *map, struct flchip *chip,
 		/* OK Still waiting */
 		if (time_after(jiffies, timeo)) {
 			chip->state = FL_STATUS;
-			DISABLE_VPP(map);
 			printk(KERN_ERR "waiting for chip to be ready timed out in bufwrite\n");
 			ret = -EIO;
 			goto out;
@@ -1265,7 +1112,8 @@ static inline int do_write_buffer(struct map_info *map, struct flchip *chip,
 		chip->buffer_write_time++;
 
 	/* Done and happy. */
-	chip->state = FL_STATUS;
+ 	chip->state = FL_STATUS;
+
 	/* check for lock bit */
 	if (status & CMD(0x02)) {
 		/* clear status */
@@ -1273,26 +1121,10 @@ static inline int do_write_buffer(struct map_info *map, struct flchip *chip,
 		/* put back into read status register mode */
 		cfi_write(map, CMD(0x70), adr);
 		ret = -EROFS;
-		goto out;
 	}
- out:
-	if (suspended) {
-		chip->state = chip->oldstate;
-		/* What if one interleaved chip has finished and the 
-		   other hasn't? The old code would leave the finished
-		   one in READY mode. That's bad, and caused -EROFS 
-		   errors to be returned from do_erase_oneblock because
-		   that's the only bit it checked for at the time.
-		   As the state machine appears to explicitly allow 
-		   sending the 0x70 (Read Status) command to an erasing
-		   chip and expecting it to be ignored, that's what we 
-		   do. */
-		cfi_write(map, CMD(0xd0), adr);
-		cfi_write(map, CMD(0x70), adr);		
-	} else
-		DISABLE_VPP(map); /* must not clear the VPP if there is a suspended erase to be resumed */
 
-	wake_up(&chip->wq);
+ out:
+	put_chip(map, chip, cmd_adr);
 	spin_unlock(chip->mutex);
 	return ret;
 }
@@ -1336,12 +1168,12 @@ static int cfi_intelext_write_buffers (struct mtd_info *mtd, loff_t to,
 	}
 
 	/* Write buffer is worth it only if more than one word to write... */
-	while(len > CFIDEV_BUSWIDTH) {
+	while(len) {
 		/* We must not cross write block boundaries */
 		int size = wbufsize - (ofs & (wbufsize-1));
 
 		if (size > len)
-			size = len & ~(CFIDEV_BUSWIDTH-1);
+			size = len;
 		ret = do_write_buffer(map, &cfi->chips[chipnum], 
 				      ofs, buf, size);
 		if (ret)
@@ -1359,17 +1191,6 @@ static int cfi_intelext_write_buffers (struct mtd_info *mtd, loff_t to,
 				return 0;
 		}
 	}
-
-	/* ... and write the remaining bytes */
-	if (len > 0) {
-		size_t local_retlen;
-		ret = cfi_intelext_write_words(mtd, ofs + (chipnum << cfi->chipshift),
-					       len, &local_retlen, buf);
-		if (ret)
-			return ret;
-		(*retlen) += local_retlen;
-	}
-
 	return 0;
 }
 
@@ -1479,45 +1300,12 @@ static int do_erase_oneblock(struct map_info *map, struct flchip *chip, unsigned
 	/* Let's determine this according to the interleave only once */
 	status_OK = CMD(0x80);
 
-	timeo = jiffies + HZ;
-retry:
+ retry:
 	spin_lock(chip->mutex);
-
-	/* Check that the chip's ready to talk to us. */
-	switch (chip->state) {
-	case FL_CFI_QUERY:
-	case FL_JEDEC_QUERY:
-	case FL_READY:
-		cfi_write(map, CMD(0x70), adr);
-		chip->state = FL_STATUS;
-
-	case FL_STATUS:
-		status = cfi_read(map, adr);
-		if ((status & status_OK) == status_OK)
-			break;
-		
-		/* Urgh. Chip not yet ready to talk to us. */
-		if (time_after(jiffies, timeo)) {
-			spin_unlock(chip->mutex);
-			printk(KERN_ERR "waiting for chip to be ready timed out in erase\n");
-			return -EIO;
-		}
-
-		/* Latency issues. Drop the lock, wait a while and retry */
+	ret = get_chip(map, chip, adr, FL_ERASING);
+	if (ret) {
 		spin_unlock(chip->mutex);
-		cfi_udelay(1);
-		goto retry;
-
-	default:
-		/* Stick ourselves on a wait queue to be woken when
-		   someone changes the status */
-		set_current_state(TASK_UNINTERRUPTIBLE);
-		add_wait_queue(&chip->wq, &wait);
-		spin_unlock(chip->mutex);
-		schedule();
-		remove_wait_queue(&chip->wq, &wait);
-		timeo = jiffies + HZ;
-		goto retry;
+		return ret;
 	}
 
 	ENABLE_VPP(map);
@@ -1528,7 +1316,7 @@ retry:
 	cfi_write(map, CMD(0x20), adr);
 	cfi_write(map, CMD(0xD0), adr);
 	chip->state = FL_ERASING;
-	chip->oldstate = 0;
+	chip->erase_suspended = 0;
 
 	spin_unlock(chip->mutex);
 	set_current_state(TASK_UNINTERRUPTIBLE);
@@ -1550,11 +1338,11 @@ retry:
 			spin_lock(chip->mutex);
 			continue;
 		}
-		if (chip->oldstate) {
+		if (chip->erase_suspended) {
 			/* This erase was suspended and resumed.
 			   Adjust the timeout */
 			timeo = jiffies + (HZ*20); /* FIXME */
-			chip->oldstate = 0;
+			chip->erase_suspended = 0;
 		}
 
 		status = cfi_read(map, adr);
@@ -1658,39 +1446,22 @@ static void cfi_intelext_sync (struct mtd_info *mtd)
 	int i;
 	struct flchip *chip;
 	int ret = 0;
-	DECLARE_WAITQUEUE(wait, current);
 
 	for (i=0; !ret && i<cfi->numchips; i++) {
 		chip = &cfi->chips[i];
 
-	retry:
 		spin_lock(chip->mutex);
+		ret = get_chip(map, chip, chip->start, FL_SYNCING);
 
-		switch(chip->state) {
-		case FL_READY:
-		case FL_STATUS:
-		case FL_CFI_QUERY:
-		case FL_JEDEC_QUERY:
+		if (!ret) {
 			chip->oldstate = chip->state;
 			chip->state = FL_SYNCING;
 			/* No need to wake_up() on this state change - 
 			 * as the whole point is that nobody can do anything
 			 * with the chip now anyway.
 			 */
-		case FL_SYNCING:
-			spin_unlock(chip->mutex);
-			break;
-
-		default:
-			/* Not an idle state */
-			add_wait_queue(&chip->wq, &wait);
-			
-			spin_unlock(chip->mutex);
-			schedule();
-		        remove_wait_queue(&chip->wq, &wait);
-			
-			goto retry;
 		}
+		spin_unlock(chip->mutex);
 	}
 
 	/* Unlock the chips again */
@@ -1731,52 +1502,18 @@ static int do_xxlock_oneblock(struct map_info *map, struct flchip *chip, unsigne
 	struct cfi_private *cfi = map->fldrv_priv;
 	cfi_word status, status_OK;
 	unsigned long timeo = jiffies + HZ;
-	DECLARE_WAITQUEUE(wait, current);
+	int ret;
 
 	adr += chip->start;
 
 	/* Let's determine this according to the interleave only once */
 	status_OK = CMD(0x80);
 
-	timeo = jiffies + HZ;
-retry:
 	spin_lock(chip->mutex);
-
-	/* Check that the chip's ready to talk to us. */
-	switch (chip->state) {
-	case FL_CFI_QUERY:
-	case FL_JEDEC_QUERY:
-	case FL_READY:
-		cfi_write(map, CMD(0x70), adr);
-		chip->state = FL_STATUS;
-
-	case FL_STATUS:
-		status = cfi_read(map, adr);
-		if ((status & status_OK) == status_OK)
-			break;
-		
-		/* Urgh. Chip not yet ready to talk to us. */
-		if (time_after(jiffies, timeo)) {
-			spin_unlock(chip->mutex);
-			printk(KERN_ERR "%s: waiting for chip to be ready timed out\n", __FUNCTION__);
-			return -EIO;
-		}
-
-		/* Latency issues. Drop the lock, wait a while and retry */
+	ret = get_chip(map, chip, adr, FL_LOCKING);
+	if (ret) {
 		spin_unlock(chip->mutex);
-		cfi_udelay(1);
-		goto retry;
-
-	default:
-		/* Stick ourselves on a wait queue to be woken when
-		   someone changes the status */
-		set_current_state(TASK_UNINTERRUPTIBLE);
-		add_wait_queue(&chip->wq, &wait);
-		spin_unlock(chip->mutex);
-		schedule();
-		remove_wait_queue(&chip->wq, &wait);
-		timeo = jiffies + HZ;
-		goto retry;
+		return ret;
 	}
 
 	ENABLE_VPP(map);
@@ -1823,8 +1560,7 @@ retry:
 	
 	/* Done and happy. */
 	chip->state = FL_STATUS;
-	DISABLE_VPP(map);
-	wake_up(&chip->wq);
+	put_chip(map, chip, adr);
 	spin_unlock(chip->mutex);
 	return 0;
 }
@@ -1889,22 +1625,23 @@ static int cfi_intelext_suspend(struct mtd_info *mtd)
 
 		spin_lock(chip->mutex);
 
-		switch(chip->state) {
+		switch (chip->state) {
 		case FL_READY:
 		case FL_STATUS:
 		case FL_CFI_QUERY:
 		case FL_JEDEC_QUERY:
-			chip->oldstate = chip->state;
-			chip->state = FL_PM_SUSPENDED;
-			/* No need to wake_up() on this state change - 
-			 * as the whole point is that nobody can do anything
-			 * with the chip now anyway.
-			 */
-		case FL_PM_SUSPENDED:
+			if (chip->oldstate == FL_READY) {
+				chip->oldstate = chip->state;
+				chip->state = FL_PM_SUSPENDED;
+				/* No need to wake_up() on this state change - 
+				 * as the whole point is that nobody can do anything
+				 * with the chip now anyway.
+				 */
+			}
 			break;
-
 		default:
 			ret = -EAGAIN;
+		case FL_PM_SUSPENDED:
 			break;
 		}
 		spin_unlock(chip->mutex);

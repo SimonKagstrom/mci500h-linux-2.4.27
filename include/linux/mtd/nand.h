@@ -2,10 +2,10 @@
  *  linux/include/linux/mtd/nand.h
  *
  *  Copyright (c) 2000 David Woodhouse <dwmw2@mvhi.com>
- *                     Steven J. Hill <sjhill@cotw.com>
+ *                     Steven J. Hill <sjhill@realitydiluted.com>
  *		       Thomas Gleixner <tglx@linutronix.de>
  *
- * $Id: nand.h,v 1.19 2002/12/02 21:48:17 gleixner Exp $
+ * $Id: nand.h,v 1.31 2003/07/11 15:07:02 dwmw2 Exp $
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -49,12 +49,14 @@
 #define __LINUX_MTD_NAND_H
 
 #include <linux/config.h>
-#include <linux/sched.h>
+#include <linux/wait.h>
+#include <linux/spinlock.h>
 
+struct mtd_info;
 /*
  * Searches for a NAND device
  */
-extern int nand_scan (struct mtd_info *mtd);
+extern int nand_scan (struct mtd_info *mtd, int max_chips);
 
 /*
  * Constants for hardware specific CLE/ALE/NCE function
@@ -65,6 +67,8 @@ extern int nand_scan (struct mtd_info *mtd);
 #define NAND_CTL_CLRCLE		4
 #define NAND_CTL_SETALE		5
 #define NAND_CTL_CLRALE		6
+#define NAND_CTL_SETWP		7
+#define NAND_CTL_CLRWP		8
 
 /*
  * Standard NAND flash commands
@@ -160,24 +164,33 @@ typedef enum {
 struct nand_chip {
 	unsigned long 	IO_ADDR_R;
 	unsigned long 	IO_ADDR_W;
-	void 		(*hwcontrol)(int cmd);
-	int  		(*dev_ready)(void);
+	
+	u_char		(*read_byte)(struct mtd_info *mtd);
+	void		(*write_byte)(struct mtd_info *mtd, u_char byte);
+	
+	void		(*write_buf)(struct mtd_info *mtd, const u_char *buf, int len);
+	void		(*read_buf)(struct mtd_info *mtd, u_char *buf, int len);
+	int		(*verify_buf)(struct mtd_info *mtd, const u_char *buf, int len);
+	void		(*select_chip)(struct mtd_info *mtd, int chip);
+	int		(*block_bad)(struct mtd_info *mtd, unsigned long pos);
+	void 		(*hwcontrol)(struct mtd_info *mtd, int cmd);
+	int  		(*dev_ready)(struct mtd_info *mtd);
 	void 		(*cmdfunc)(struct mtd_info *mtd, unsigned command, int column, int page_addr);
 	int 		(*waitfunc)(struct mtd_info *mtd, struct nand_chip *this, int state);
-	void		(*calculate_ecc)(const u_char *dat, u_char *ecc_code);
-	int 		(*correct_data)(u_char *dat, u_char *read_ecc, u_char *calc_ecc);
-	void		(*enable_hwecc)(int mode);
+	void		(*calculate_ecc)(struct mtd_info *mtd, const u_char *dat, u_char *ecc_code);
+	int 		(*correct_data)(struct mtd_info *mtd, u_char *dat, u_char *read_ecc, u_char *calc_ecc);
+	void		(*enable_hwecc)(struct mtd_info *mtd, int mode);
 	int		eccmode;
 	int		eccsize;
 	int 		chip_delay;
-	spinlock_t 	chip_lock;
+	int		chipshift;
+	spinlock_t	chip_lock;
 	wait_queue_head_t wq;
 	nand_state_t 	state;
 	int 		page_shift;
 	u_char 		*data_buf;
 	u_char		*data_poi;
-	u_char 		*data_cache;
-	int		cache_page;
+	void		*priv;
 };
 
 /*
@@ -240,35 +253,5 @@ extern struct nand_manufacturers nand_manuf_ids[];
 * Constants for oob configuration
 */
 #define NAND_BADBLOCK_POS		5
-
-#define NAND_NONE_OOB			0
-#define NAND_JFFS2_OOB			1
-#define NAND_YAFFS_OOB			2
-
-#define NAND_NOOB_ECCPOS0		0
-#define NAND_NOOB_ECCPOS1		1
-#define NAND_NOOB_ECCPOS2		2
-#define NAND_NOOB_ECCPOS3		3
-#define NAND_NOOB_ECCPOS4		6
-#define NAND_NOOB_ECCPOS5		7
-
-#define NAND_JFFS2_OOB_ECCPOS0		0
-#define NAND_JFFS2_OOB_ECCPOS1		1
-#define NAND_JFFS2_OOB_ECCPOS2		2
-#define NAND_JFFS2_OOB_ECCPOS3		3
-#define NAND_JFFS2_OOB_ECCPOS4		6
-#define NAND_JFFS2_OOB_ECCPOS5		7
-
-#define NAND_YAFFS_OOB_ECCPOS0		8
-#define NAND_YAFFS_OOB_ECCPOS1		9
-#define NAND_YAFFS_OOB_ECCPOS2		10
-#define NAND_YAFFS_OOB_ECCPOS3		13
-#define NAND_YAFFS_OOB_ECCPOS4		14
-#define NAND_YAFFS_OOB_ECCPOS5		15
-
-#define NAND_JFFS2_OOB8_FSDAPOS		6
-#define NAND_JFFS2_OOB16_FSDAPOS	8
-#define NAND_JFFS2_OOB8_FSDALEN		2
-#define NAND_JFFS2_OOB16_FSDALEN	8
 
 #endif /* __LINUX_MTD_NAND_H */

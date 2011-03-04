@@ -287,7 +287,9 @@ typedef unsigned char	byte;	/* used everywhere */
  * Check for an interrupt and acknowledge the interrupt status
  */
 struct hwif_s;
+struct ide_drive_s;
 typedef int (ide_ack_intr_t)(struct hwif_s *);
+typedef void (ide_xfer_data_t)(struct ide_drive_s *, void *, unsigned int);
 
 #ifndef NO_DMA
 #define NO_DMA  255
@@ -311,10 +313,14 @@ typedef enum {	ide_unknown,	ide_generic,	ide_pci,
 typedef struct hw_regs_s {
 	ide_ioreg_t	io_ports[IDE_NR_PORTS];	/* task file registers */
 	int		irq;			/* our irq number */
-	int		dma;			/* our dma entry */
+	int		dma;			/* our dma number */
 	ide_ack_intr_t	*ack_intr;		/* acknowledge interrupt */
+	ide_xfer_data_t	*ide_output_data;	/* write data to i/face */
+	ide_xfer_data_t	*ide_input_data;	/* read data from i/face */
+	ide_xfer_data_t	*atapi_output_bytes;	/* write bytes to i/face */
+	ide_xfer_data_t	*atapi_input_bytes;	/* read bytes from i/face */
 	void		*priv;			/* interface specific data */
-	hwif_chipset_t  chipset;
+	hwif_chipset_t	chipset;
 	sata_ioreg_t	sata_scr[SATA_NR_PORTS];
 	sata_ioreg_t	sata_misc[SATA_NR_PORTS];
 } hw_regs_t;

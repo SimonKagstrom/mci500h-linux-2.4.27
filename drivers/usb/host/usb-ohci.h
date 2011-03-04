@@ -384,12 +384,13 @@ typedef struct ohci {
 #define OHCI_QUIRK_SUCKYIO	0x02		/* NSC superio */
 
 	struct ohci_regs * regs;	/* OHCI controller's memory */
+	struct list_head ohci_hcd_list;	/* list of all ohci_hcd */
 
+	struct ohci * next; 		// chain of ohci device contexts
 	struct list_head timeout_list;
 	// struct list_head urb_list; 	// list of all pending urbs
-	spinlock_t ohci_lock;		/* Covers all fields up & down */
-	struct urb *complete_head, *complete_tail;
-
+	// spinlock_t urb_list_lock; 	// lock to keep consistency 
+  
 	int ohci_int_load[32];		/* load of the 32 Interrupt Chains (for load balancing)*/
 	ed_t * ed_rm_list[2];     /* lists of all endpoints to be removed */
 	ed_t * ed_bulktail;       /* last endpoint of bulk list */
@@ -403,6 +404,7 @@ typedef struct ohci {
 
 	/* PCI device handle, settings, ... */
 	struct pci_dev	*ohci_dev;
+	const char	*slot_name;
 	u8		pci_latency;
 	struct pci_pool	*td_cache;
 	struct pci_pool	*dev_cache;
@@ -448,7 +450,7 @@ static int rh_init_int_timer(struct urb * urb);
 #endif
  
 #ifndef CONFIG_PCI
-#	error "usb-ohci currently requires PCI-based controllers"
+//#	error "usb-ohci currently requires PCI-based controllers"
 	/* to support non-PCI OHCIs, you need custom bus/mem/... glue */
 #endif
 
@@ -641,3 +643,6 @@ dev_free (struct ohci *hc, struct ohci_device *dev)
 	pci_pool_free (hc->dev_cache, dev, dev->dma);
 }
 
+/* For initializing controller (mask in an HCFS mode too) */
+#define	OHCI_CONTROL_INIT \
+	(OHCI_CTRL_CBSR & 0x3) | OHCI_CTRL_IE | OHCI_CTRL_PLE

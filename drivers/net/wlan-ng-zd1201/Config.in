@@ -1,0 +1,17 @@
+
+if [ "$CONFIG_ARM" = "y" ]; then
+
+   mainmenu_option next_comment
+   comment 'SSA specific 802.11b WiFi'
+
+   if [ "$CONFIG_ARCH_SSA" = "y" ]; then  
+      tristate 'SSA specific ZyDAS zd1201 support' CONFIG_SSA_ZD1201
+      bool     '  ZyDAS zd1201 debugging support' CONFIG_SSA_ZD1201_DEBUG $CONFIG_SSA_ZD1201
+   fi
+
+   endmenu
+
+fi
+
+
+

@@ -1,5 +1,5 @@
 /*
- * $Id: cmdlinepart.c,v 1.6 2002/11/16 01:37:39 dneuer Exp $
+ * $Id: cmdlinepart.c,v 1.11 2003/10/23 08:32:45 dwmw2 Exp $
  *
  * Read flash partition table from command line
  *
@@ -28,7 +28,7 @@
 
 #include <linux/mtd/mtd.h>
 #include <linux/mtd/partitions.h>
-#include <asm/setup.h>
+#include <linux/mtd/compatmac.h>
 #include <linux/bootmem.h>
 
 /* error message prefix */
@@ -178,8 +178,7 @@ static struct mtd_partition * newpart(char *s,
 	parts[this_part].mask_flags = mask_flags;
 	if (name)
 	{
-		strncpy(extra_mem, name, name_len);
-		extra_mem[name_len] = 0;
+		strlcpy(extra_mem, name, name_len + 1);
 	}
 	else
 	{
@@ -258,8 +257,7 @@ static int mtdpart_setup_real(char *s)
 		this_mtd->parts = parts;
 		this_mtd->num_parts = num_parts;
 		this_mtd->mtd_id = (char*)(this_mtd + 1);
-		strncpy(this_mtd->mtd_id, mtd_id, mtd_id_len);
-		this_mtd->mtd_id[mtd_id_len] = 0;
+		strlcpy(this_mtd->mtd_id, mtd_id, mtd_id_len + 1);
 
 		/* link into chain */
 		this_mtd->next = partitions;	    	
@@ -291,13 +289,14 @@ static int mtdpart_setup_real(char *s)
  * information. It returns partitions for the requested mtd device, or
  * the first one in the chain if a NULL mtd_id is passed in.
  */
-int parse_cmdline_partitions(struct mtd_info *master, 
+static int parse_cmdline_partitions(struct mtd_info *master, 
                              struct mtd_partition **pparts,
-                             const char *mtd_id)
+                             unsigned long origin)
 {
 	unsigned long offset;
 	int i;
 	struct cmdline_mtd_partition *part;
+	char *mtd_id = master->name;
 
 	if(!cmdline)
 		return -EINVAL;
@@ -349,7 +348,25 @@ static int __init mtdpart_setup(char *s)
 
 __setup("mtdparts=", mtdpart_setup);
 
-EXPORT_SYMBOL(parse_cmdline_partitions);
+static struct mtd_part_parser cmdline_parser = {
+	.owner = THIS_MODULE,
+	.parse_fn = parse_cmdline_partitions,
+	.name = "cmdlinepart",
+};
+
+static int __init cmdline_parser_init(void)
+{
+	return register_mtd_parser(&cmdline_parser);
+}
+
+static void __exit cmdline_parser_exit(void)
+{
+	deregister_mtd_parser(&cmdline_parser);
+}
+
+module_init(cmdline_parser_init);
+module_exit(cmdline_parser_exit);
+
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Marius Groeger <mag@sysgo.de>");

@@ -6,7 +6,7 @@
  *      (C) Copyright 2000-2001, Greg Ungerer (gerg@snapgear.com)
  *      (C) Copyright 2001-2002, SnapGear (www.snapgear.com)
  *
- *	$Id: nettel.c,v 1.1 2002/08/08 06:30:13 gerg Exp $
+ *	$Id: nettel.c,v 1.4 2003/05/20 20:59:30 dwmw2 Exp $
  */
 
 /****************************************************************************/
@@ -59,128 +59,72 @@ static struct mtd_info *amd_mtd;
 
 /****************************************************************************/
 
-static __u8 nettel_read8(struct map_info *map, unsigned long ofs)
-{
-	return(readb(map->map_priv_1 + ofs));
-}
-
-static __u16 nettel_read16(struct map_info *map, unsigned long ofs)
-{
-	return(readw(map->map_priv_1 + ofs));
-}
-
-static __u32 nettel_read32(struct map_info *map, unsigned long ofs)
-{
-	return(readl(map->map_priv_1 + ofs));
-}
-
-static void nettel_copy_from(struct map_info *map, void *to, unsigned long from, ssize_t len)
-{
-	memcpy_fromio(to, map->map_priv_1 + from, len);
-}
-
-static void nettel_write8(struct map_info *map, __u8 d, unsigned long adr)
-{
-	writeb(d, map->map_priv_1 + adr);
-}
-
-static void nettel_write16(struct map_info *map, __u16 d, unsigned long adr)
-{
-	writew(d, map->map_priv_1 + adr);
-}
-
-static void nettel_write32(struct map_info *map, __u32 d, unsigned long adr)
-{
-	writel(d, map->map_priv_1 + adr);
-}
-
-static void nettel_copy_to(struct map_info *map, unsigned long to, const void *from, ssize_t len)
-{
-	memcpy_toio(map->map_priv_1 + to, from, len);
-}
-
 /****************************************************************************/
 
 #ifdef CONFIG_MTD_CFI_INTELEXT
 static struct map_info nettel_intel_map = {
-	name: "SnapGear Intel",
-	size: 0,
-	buswidth: INTEL_BUSWIDTH,
-	read8: nettel_read8,
-	read16: nettel_read16,
-	read32: nettel_read32,
-	copy_from: nettel_copy_from,
-	write8: nettel_write8,
-	write16: nettel_write16,
-	write32: nettel_write32,
-	copy_to: nettel_copy_to
+	.name = "SnapGear Intel",
+	.size = 0,
+	.buswidth = INTEL_BUSWIDTH,
 };
 
 static struct mtd_partition nettel_intel_partitions[] = {
 	{
-		name: "SnapGear kernel",
-		offset: 0,
-		size: 0x000e0000
+		.name = "SnapGear kernel",
+		.offset = 0,
+		.size = 0x000e0000
 	},
 	{
-		name: "SnapGear filesystem",
-		offset: 0x00100000,
+		.name = "SnapGear filesystem",
+		.offset = 0x00100000,
 	},
 	{
-		name: "SnapGear config",
-		offset: 0x000e0000,
-		size: 0x00020000
+		.name = "SnapGear config",
+		.offset = 0x000e0000,
+		.size = 0x00020000
 	},
 	{
-		name: "SnapGear Intel",
-		offset: 0
+		.name = "SnapGear Intel",
+		.offset = 0
 	},
 	{
-		name: "SnapGear BIOS Config",
-		offset: 0x007e0000,
-		size: 0x00020000
+		.name = "SnapGear BIOS Config",
+		.offset = 0x007e0000,
+		.size = 0x00020000
 	},
 	{
-		name: "SnapGear BIOS",
-		offset: 0x007e0000,
-		size: 0x00020000
+		.name = "SnapGear BIOS",
+		.offset = 0x007e0000,
+		.size = 0x00020000
 	},
 };
 #endif
 
 static struct map_info nettel_amd_map = {
-	name: "SnapGear AMD",
-	size: AMD_WINDOW_MAXSIZE,
-	buswidth: AMD_BUSWIDTH,
-	read8: nettel_read8,
-	read16: nettel_read16,
-	read32: nettel_read32,
-	copy_from: nettel_copy_from,
-	write8: nettel_write8,
-	write16: nettel_write16,
-	write32: nettel_write32,
-	copy_to: nettel_copy_to
+	.name = "SnapGear AMD",
+	.size = AMD_WINDOW_MAXSIZE,
+	.buswidth = AMD_BUSWIDTH,
 };
 
 static struct mtd_partition nettel_amd_partitions[] = {
 	{
-		name: "SnapGear BIOS config",
-		offset: 0x000e0000,
-		size: 0x00010000
+		.name = "SnapGear BIOS config",
+		.offset = 0x000e0000,
+		.size = 0x00010000
 	},
 	{
-		name: "SnapGear BIOS",
-		offset: 0x000f0000,
-		size: 0x00010000
+		.name = "SnapGear BIOS",
+		.offset = 0x000f0000,
+		.size = 0x00010000
 	},
 	{
-		name: "SnapGear AMD",
-		offset: 0
+		.name = "SnapGear AMD",
+		.offset = 0
 	},
 	{
-		name: "SnapGear high BIOS",
-		offset: 0x001f0000,
-		size: 0x00010000
+		.name = "SnapGear high BIOS",
+		.offset = 0x001f0000,
+		.size = 0x00010000
 	}
 };
 
@@ -328,18 +272,20 @@ int __init nettel_init(void)
 	*amdpar = SC520_PAR(SC520_PAR_BOOTCS, amdaddr, maxsize);
 	__asm__ ("wbinvd");
 
-	nettel_amd_map.map_priv_1 = (unsigned long)
+	nettel_amd_map.phys = amdaddr;
+	nettel_amd_map.virt = (unsigned long)
 		ioremap_nocache(amdaddr, maxsize);
-	if (!nettel_amd_map.map_priv_1) {
+	if (!nettel_amd_map.virt) {
 		printk("SNAPGEAR: failed to ioremap() BOOTCS\n");
 		return(-EIO);
 	}
+	simple_map_init(&nettel_amd_map);
 
 	if ((amd_mtd = do_map_probe("jedec_probe", &nettel_amd_map))) {
 		printk(KERN_NOTICE "SNAPGEAR: AMD flash device size = %dK\n",
 			amd_mtd->size>>10);
 
-		amd_mtd->module = THIS_MODULE;
+		amd_mtd->owner = THIS_MODULE;
 
 		/* The high BIOS partition is only present for 2MB units */
 		num_amd_partitions = NUM_AMD_PARTITIONS;
@@ -387,8 +333,8 @@ int __init nettel_init(void)
 
 		/* Destroy useless AMD MTD mapping */
 		amd_mtd = NULL;
-		iounmap((void *) nettel_amd_map.map_priv_1);
-		nettel_amd_map.map_priv_1 = (unsigned long) NULL;
+		iounmap((void *) nettel_amd_map.virt);
+		nettel_amd_map.virt = (unsigned long) NULL;
 #else
 		/* Only AMD flash supported */
 		return(-ENXIO);
@@ -411,16 +357,18 @@ int __init nettel_init(void)
 
 	/* Probe for the the size of the first Intel flash */
 	nettel_intel_map.size = maxsize;
-	nettel_intel_map.map_priv_1 = (unsigned long)
+	nettel_intel_map.phys = intel0addr;
+	nettel_intel_map.virt = (unsigned long)
 		ioremap_nocache(intel0addr, maxsize);
-	if (!nettel_intel_map.map_priv_1) {
+	if (!nettel_intel_map.virt) {
 		printk("SNAPGEAR: failed to ioremap() ROMCS1\n");
 		return(-EIO);
 	}
+	simple_map_init(&nettel_intel_map);
 
 	intel_mtd = do_map_probe("cfi_probe", &nettel_intel_map);
 	if (! intel_mtd) {
-		iounmap((void *) nettel_intel_map.map_priv_1);
+		iounmap((void *) nettel_intel_map.virt);
 		return(-ENXIO);
 	}
 
@@ -441,19 +389,19 @@ int __init nettel_init(void)
 	/* Delete the old map and probe again to do both chips */
 	map_destroy(intel_mtd);
 	intel_mtd = NULL;
-	iounmap((void *) nettel_intel_map.map_priv_1);
+	iounmap((void *) nettel_intel_map.virt);
 
 	nettel_intel_map.size = maxsize;
-	nettel_intel_map.map_priv_1 = (unsigned long)
+	nettel_intel_map.virt = (unsigned long)
 		ioremap_nocache(intel0addr, maxsize);
-	if (!nettel_intel_map.map_priv_1) {
+	if (!nettel_intel_map.virt) {
 		printk("SNAPGEAR: failed to ioremap() ROMCS1/2\n");
 		return(-EIO);
 	}
 
 	intel_mtd = do_map_probe("cfi_probe", &nettel_intel_map);
 	if (! intel_mtd) {
-		iounmap((void *) nettel_intel_map.map_priv_1);
+		iounmap((void *) nettel_intel_map.virt);
 		return(-ENXIO);
 	}
 
@@ -468,7 +416,7 @@ int __init nettel_init(void)
 	printk(KERN_NOTICE "SNAPGEAR: Intel flash device size = %dK\n",
 		(intel_mtd->size >> 10));
 
-	intel_mtd->module = THIS_MODULE;
+	intel_mtd->owner = THIS_MODULE;
 
 #ifndef CONFIG_BLK_DEV_INITRD
 	ROOT_DEV = MKDEV(MTD_BLOCK_MAJOR, 1);
@@ -523,18 +471,18 @@ void __exit nettel_cleanup(void)
 		del_mtd_partitions(amd_mtd);
 		map_destroy(amd_mtd);
 	}
-	if (nettel_amd_map.map_priv_1) {
-		iounmap((void *)nettel_amd_map.map_priv_1);
-		nettel_amd_map.map_priv_1 = 0;
+	if (nettel_amd_map.virt) {
+		iounmap((void *)nettel_amd_map.virt);
+		nettel_amd_map.virt = 0;
 	}
 #ifdef CONFIG_MTD_CFI_INTELEXT
 	if (intel_mtd) {
 		del_mtd_partitions(intel_mtd);
 		map_destroy(intel_mtd);
 	}
-	if (nettel_intel_map.map_priv_1) {
-		iounmap((void *)nettel_intel_map.map_priv_1);
-		nettel_intel_map.map_priv_1 = 0;
+	if (nettel_intel_map.virt) {
+		iounmap((void *)nettel_intel_map.virt);
+		nettel_intel_map.virt = 0;
 	}
 #endif
 }

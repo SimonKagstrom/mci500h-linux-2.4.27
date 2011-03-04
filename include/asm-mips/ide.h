@@ -27,7 +27,7 @@ struct ide_ops {
 	int (*ide_default_irq)(ide_ioreg_t base);
 	ide_ioreg_t (*ide_default_io_base)(int index);
 	void (*ide_init_hwif_ports)(hw_regs_t *hw, ide_ioreg_t data_port,
-	                            ide_ioreg_t ctrl_port, int *irq);
+				    ide_ioreg_t ctrl_port, int *irq);
 };
 
 extern struct ide_ops *ide_ops;

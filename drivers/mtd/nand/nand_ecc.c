@@ -1,10 +1,10 @@
 /*
  *  drivers/mtd/nand_ecc.c
  *
- *  Copyright (C) 2000 Steven J. Hill (sjhill@cotw.com)
+ *  Copyright (C) 2000 Steven J. Hill (sjhill@realitydiluted.com)
  *                     Toshiba America Electronics Components, Inc.
  *
- * $Id: nand_ecc.c,v 1.8 2002/09/16 09:19:53 dwmw2 Exp $
+ * $Id: nand_ecc.c,v 1.10 2003/07/01 23:31:15 dwmw2 Exp $
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -17,6 +17,7 @@
 #include <linux/types.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
+#include <linux/mtd/nand_ecc.h>
 
 /*
  * Pre-calculated 256-way 1 byte column parity
@@ -84,7 +85,7 @@ static void nand_trans_result(u_char reg2, u_char reg3,
 /*
  * Calculate 3 byte ECC code for 256 byte block
  */
-void nand_calculate_ecc (const u_char *dat, u_char *ecc_code)
+void nand_calculate_ecc(struct mtd_info *mtd, const u_char *dat, u_char *ecc_code)
 {
 	u_char idx, reg1, reg2, reg3;
 	int j;
@@ -119,7 +120,7 @@ void nand_calculate_ecc (const u_char *dat, u_char *ecc_code)
 /*
  * Detect and correct a 1 bit error for 256 byte block
  */
-int nand_correct_data (u_char *dat, u_char *read_ecc, u_char *calc_ecc)
+int nand_correct_data(struct mtd_info *mtd, u_char *dat, u_char *read_ecc, u_char *calc_ecc)
 {
 	u_char a, b, c, d1, d2, d3, add, bit, i;
 	
@@ -209,5 +210,5 @@ EXPORT_SYMBOL(nand_calculate_ecc);
 EXPORT_SYMBOL(nand_correct_data);
 
 MODULE_LICENSE("GPL");
-MODULE_AUTHOR("Steven J. Hill <sjhill@cotw.com>");
+MODULE_AUTHOR("Steven J. Hill <sjhill@realitydiluted.com>");
 MODULE_DESCRIPTION("Generic NAND ECC support");

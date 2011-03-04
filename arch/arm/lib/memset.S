@@ -11,9 +11,28 @@
  */
 #include <linux/linkage.h>
 #include <asm/assembler.h>
+#include <linux/config.h>
+
+#if defined (CONFIG_ARCH_LOST_WRITES)
 
 	.text
-	.align	5
+	.align	2
+
+ENTRY(memset)
+	mov	r3, #0
+	cmp	r3, r2
+	beq	2f
+1:	strb	r1, [r0, r3]
+	add	r3, r3, #1
+	cmp	r3, r2
+	bne	1b
+2:
+	RETINSTR(mov,pc,lr)
+
+#else
+
+	.text
+	.align	4
 	.word	0
 
 1:	subs	r2, r2, #4		@ 1 do we have enough
@@ -78,3 +97,6 @@ ENTRY(memset)
 	tst	r2, #1
 	strneb	r1, [r0], #1
 	RETINSTR(mov,pc,lr)
+
+#endif
+

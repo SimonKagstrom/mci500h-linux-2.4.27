@@ -1,5 +1,5 @@
 /*
- * $Id: pmc551.c,v 1.22 2003/01/24 13:34:30 dwmw2 Exp $
+ * $Id: pmc551.c,v 1.25 2003/06/23 12:24:01 dwmw2 Exp $
  *
  * PMC551 PCI Mezzanine Ram Device
  *
@@ -681,11 +681,6 @@ int __init init_pmc551(void)
 
         printk(KERN_INFO PMC551_VERSION);
 
-        if(!pci_present()) {
-                printk(KERN_NOTICE "pmc551: PCI not enabled.\n");
-                return -ENODEV;
-        }
-
         /*
          * PCU-bus chipset probe.
          */
@@ -787,10 +782,10 @@ int __init init_pmc551(void)
                 mtd->write 	= pmc551_write;
                 mtd->point 	= pmc551_point;
                 mtd->unpoint 	= pmc551_unpoint;
-                mtd->module 	= THIS_MODULE;
                 mtd->type 	= MTD_RAM;
                 mtd->name 	= "PMC551 RAM board";
                 mtd->erasesize 	= 0x10000;
+		mtd->owner = THIS_MODULE;
 
                 if (add_mtd_device(mtd)) {
                         printk(KERN_NOTICE "pmc551: Failed to register new device\n");

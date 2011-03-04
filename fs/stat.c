@@ -26,7 +26,9 @@ do_revalidate(struct dentry *dentry)
 }
 
 
-#if !defined(__alpha__) && !defined(__sparc__) && !defined(__ia64__) && !defined(CONFIG_ARCH_S390) && !defined(__hppa__) && !defined(__x86_64__) && !defined(__mips__)
+#if !defined(__alpha__) && !defined(__sparc__) && !defined(__ia64__) && \
+    !defined(CONFIG_ARCH_S390) && !defined(__hppa__) && !defined(__arm__) && \
+    !defined(__x86_64__) && !defined(__mips__)
 
 /*
  * For backward compatibility?  Maybe this should be moved
@@ -38,7 +40,7 @@ static int cp_old_stat(struct inode * inode, struct __old_kernel_stat * statbuf)
 	struct __old_kernel_stat tmp;
 
 	memset(&tmp, 0, sizeof(struct __old_kernel_stat));
-	
+
 	if (warncount > 0) {
 		warncount--;
 		printk(KERN_WARNING "VFS: Warning: %s using old stat() call. Recompile your binary.\n",
@@ -60,7 +62,7 @@ static int cp_old_stat(struct inode * inode, struct __old_kernel_stat * statbuf)
 #if BITS_PER_LONG == 32
 	if (inode->i_size > MAX_NON_LFS)
 		return -EOVERFLOW;
-#endif	
+#endif
 	tmp.st_size = inode->i_size;
 	tmp.st_atime = inode->i_atime;
 	tmp.st_mtime = inode->i_mtime;
@@ -88,7 +90,7 @@ static int cp_new_stat(struct inode * inode, struct stat * statbuf)
 #if BITS_PER_LONG == 32
 	if (inode->i_size > MAX_NON_LFS)
 		return -EOVERFLOW;
-#endif	
+#endif
 	tmp.st_size = inode->i_size;
 	tmp.st_atime = inode->i_atime;
 	tmp.st_mtime = inode->i_mtime;
@@ -133,7 +135,9 @@ static int cp_new_stat(struct inode * inode, struct stat * statbuf)
 }
 
 
-#if !defined(__alpha__) && !defined(__sparc__) && !defined(__ia64__) && !defined(CONFIG_ARCH_S390) && !defined(__hppa__) && !defined(__x86_64__) && !defined(__mips__)
+#if !defined(__alpha__) && !defined(__sparc__) && !defined(__ia64__) && \
+    !defined(CONFIG_ARCH_S390) && !defined(__hppa__) && !defined(__arm__) && \
+    !defined(__x86_64__) && !defined(__mips__)
 /*
  * For backward compatibility?  Maybe this should be moved
  * into arch/i386 instead?
@@ -169,7 +173,9 @@ asmlinkage long sys_newstat(char * filename, struct stat * statbuf)
 	return error;
 }
 
-#if !defined(__alpha__) && !defined(__sparc__) && !defined(__ia64__) && !defined(CONFIG_ARCH_S390) && !defined(__hppa__) && !defined(__x86_64__) && !defined(__mips__)
+#if !defined(__alpha__) && !defined(__sparc__) && !defined(__ia64__) && \
+    !defined(CONFIG_ARCH_S390) && !defined(__hppa__) && !defined(__arm__) && \
+    !defined(__x86_64__) && !defined(__mips__)
 
 /*
  * For backward compatibility?  Maybe this should be moved
@@ -207,7 +213,9 @@ asmlinkage long sys_newlstat(char * filename, struct stat * statbuf)
 	return error;
 }
 
-#if !defined(__alpha__) && !defined(__sparc__) && !defined(__ia64__) && !defined(CONFIG_ARCH_S390) && !defined(__hppa__) && !defined(__x86_64__) && !defined(__mips__)
+#if !defined(__alpha__) && !defined(__sparc__) && !defined(__ia64__) && \
+    !defined(CONFIG_ARCH_S390) && !defined(__hppa__) && !defined(__arm__) && \
+    !defined(__x86_64__) && !defined(__mips__)
 
 /*
  * For backward compatibility?  Maybe this should be moved

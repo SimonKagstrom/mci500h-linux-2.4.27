@@ -4,11 +4,13 @@
 /*
  * Fundamental kernel parameters.
  *
- * Based on <asm-i386/param.h>.
- *
- * Modified 1998, 1999, 2002-2003
- *	David Mosberger-Tang <davidm@hpl.hp.com>, Hewlett-Packard Co
+ * Copyright (C) 1998, 1999, 2002-2003 Hewlett-Packard Co
+ *	David Mosberger-Tang <davidm@hpl.hp.com>
  */
+
+#ifdef __KERNEL__
+#define hz_to_std(a) (a)
+#endif
 
 #define EXEC_PAGESIZE	65536
 

@@ -21,7 +21,6 @@
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  */
 #include <linux/config.h>
-#include <linux/sched.h>
 #include <linux/kernel.h>
 #include <linux/pci.h>
 #include <linux/ptrace.h>
@@ -32,6 +31,7 @@
 #include <linux/init.h>
 
 #include <asm/hardware.h>
+#include <asm/io.h>
 #include <asm/irq.h>
 #include <asm/system.h>
 #include <asm/mach/pci.h>
@@ -447,15 +447,16 @@ int __init pci_v3_setup_resources(struct resource **resource)
 #define SC_LBFADDR (IO_ADDRESS(INTEGRATOR_SC_BASE) + 0x20)
 #define SC_LBFCODE (IO_ADDRESS(INTEGRATOR_SC_BASE) + 0x24)
 
-static int v3_fault(unsigned long addr, struct pt_regs *regs)
+static int
+v3_pci_fault(unsigned long addr, unsigned int fsr, struct pt_regs *regs)
 {
 	unsigned long pc = instruction_pointer(regs);
 	unsigned long instr = *(unsigned long *)pc;
 #if 0
 	char buf[128];
 
-	sprintf(buf, "V3 fault: address=0x%08lx, pc=0x%08lx [%08lx] LBFADDR=%08x LBFCODE=%02x ISTAT=%02x\n",
-		addr, pc, instr, __raw_readl(SC_LBFADDR), __raw_readl(SC_LBFCODE) & 255,
+	sprintf(buf, "V3 fault: addr 0x%08lx, FSR 0x%03x, PC 0x%08lx [%08lx] LBFADDR=%08x LBFCODE=%02x ISTAT=%02x\n",
+		addr, fsr, pc, instr, __raw_readl(SC_LBFADDR), __raw_readl(SC_LBFCODE) & 255,
 		v3_readb(V3_LB_ISTAT));
 	printk(KERN_DEBUG "%s", buf);
 	printascii(buf);
@@ -523,8 +524,6 @@ static void v3_irq(int irq, void *devid, struct pt_regs *regs)
 #endif
 }
 
-extern int (*external_fault)(unsigned long addr, struct pt_regs *regs);
-
 /*
  * V3_LB_BASE? - local bus address
  * V3_LB_MAP?  - pci bus address
@@ -539,7 +538,10 @@ void __init pci_v3_init(void *sysdata)
 	/*
 	 * Hook in our fault handler for PCI errors
 	 */
-	external_fault = v3_fault;
+	hook_fault_code(4, v3_pci_fault, SIGBUS, "external abort on linefetch");
+	hook_fault_code(6, v3_pci_fault, SIGBUS, "external abort on linefetch");
+	hook_fault_code(8, v3_pci_fault, SIGBUS, "external abort on non-linefetch");
+	hook_fault_code(10, v3_pci_fault, SIGBUS, "external abort on non-linefetch");
 
 	spin_lock_irqsave(&v3_lock, flags);
 
@@ -629,7 +631,7 @@ void __init pci_v3_init(void *sysdata)
 #if 0
 	ret = request_irq(IRQ_LBUSTIMEOUT, lb_timeout, 0, "bus timeout", NULL);
 	if (ret)
-		printk(KERN_ERR "PCI: unable to grab local bus timeout ".
+		printk(KERN_ERR "PCI: unable to grab local bus timeout "
 		       "interrupt: %d\n", ret);
 #endif
 }

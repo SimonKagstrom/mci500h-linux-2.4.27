@@ -10,7 +10,8 @@
 export-objs	:=  ad1848.o audio_syms.o midi_syms.o mpu401.o \
 		    msnd.o opl3.o sb_common.o sequencer_syms.o \
 		    sound_core.o sound_syms.o uart401.o	\
-		    nm256_audio.o ac97.o ac97_codec.o aci.o
+		    nm256_audio.o ac97.o ac97_codec.o aci.o \
+		    sa1100-audio.o
 
 # Each configuration option enables a list of files.
 
@@ -76,6 +77,14 @@ obj-$(CONFIG_SOUND_MAESTRO3)	+= maestro3.o ac97_codec.o
 obj-$(CONFIG_SOUND_FORTE)	+= forte.o ac97_codec.o
 obj-$(CONFIG_SOUND_TRIDENT)	+= trident.o ac97_codec.o
 obj-$(CONFIG_SOUND_HARMONY)	+= harmony.o
+obj-$(CONFIG_SOUND_SA1100)	+= sa1100-audio.o
+obj-$(CONFIG_SOUND_UDA1341)	+= uda1341.o
+obj-$(CONFIG_SOUND_ASSABET_UDA1341) += assabet-uda1341.o
+obj-$(CONFIG_SOUND_PANGOLIN_UDA1341) += pangolin-uda1341.o
+obj-$(CONFIG_SOUND_H3600_UDA1341) += h3600-uda1341.o
+obj-$(CONFIG_SOUND_SA1111_UDA1341) += sa1111-uda1341.o
+obj-$(CONFIG_SOUND_SA1111_AC97)	+= sa1111-ac97.o ac97_codec.o
+obj-$(CONFIG_SOUND_SA1100SSP)	+= sa1100ssp.o
 obj-$(CONFIG_SOUND_EMU10K1)	+= ac97_codec.o
 obj-$(CONFIG_SOUND_BCM_CS4297A)	+= swarm_cs4297a.o
 obj-$(CONFIG_SOUND_RME96XX)     += rme96xx.o
@@ -83,6 +92,8 @@ obj-$(CONFIG_SOUND_BT878)	+= btaudio.o
 obj-$(CONFIG_SOUND_IT8172)	+= ite8172.o ac97_codec.o
 obj-$(CONFIG_SOUND_AD1980)	+= ac97_plugin_ad1980.o
 obj-$(CONFIG_SOUND_WM97XX)	+= ac97_plugin_wm97xx.o
+obj-$(CONFIG_SOUND_SAA7752)	+= saa7752.o
+obj-$(CONFIG_SOUND_PNX0106)	+= pnx0106.o
 
 ifeq ($(CONFIG_MIDI_EMU10K1),y)
   obj-$(CONFIG_SOUND_EMU10K1)	+= sound.o
@@ -104,7 +115,6 @@ subdir-$(CONFIG_DMASOUND) += dmasound
 ifeq ($(CONFIG_DMASOUND),y)
   obj-y += dmasound/dmasound.o
 endif
-
 
 # Declare multi-part drivers.
 

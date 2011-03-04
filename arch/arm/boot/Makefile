@@ -117,6 +117,19 @@ ifeq ($(CONFIG_ARCH_ANAKIN),y)
 ZRELADDR	 = 0x20008000
 endif
 
+ifeq ($(CONFIG_ARCH_SSA),y)
+ZRELADDR	 = 0xC0008000
+PARAMS_PHYS	 = 0xC0000100
+INITRD_PHYS	 = 0xC0600000
+endif
+
+ifeq ($(CONFIG_ARCH_PNX0106),y)
+ZRELADDR	 = 0x30008000
+PARAMS_PHYS	 = 0x30000100
+INITRD_PHYS	 = 0x30600000
+endif
+
+
 #
 # We now have a PIC decompressor implementation.  Decompressors running
 # from RAM should not define ZTEXTADDR.  Decompressors running directly

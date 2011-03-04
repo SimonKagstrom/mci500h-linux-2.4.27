@@ -34,7 +34,7 @@ obj-$(CONFIG_FONT_PEARL_8x8)      += font_pearl_8x8.o
 obj-$(CONFIG_FONT_ACORN_8x8)      += font_acorn_8x8.o
 
 # Add fbmon.o back into obj-$(CONFIG_FB) in 2.5.x
-obj-$(CONFIG_FB)                  += fbmem.o fbcmap.o modedb.o fbcon.o fonts.o
+obj-$(CONFIG_FB)                  += fbmem.o fbcmap.o modedb.o fbcon.o fonts.o fbgen.o
 # Only include macmodes.o if we have FB support and are PPC
 ifeq ($(CONFIG_FB),y)
 obj-$(CONFIG_PPC)                 += macmodes.o
@@ -55,6 +55,7 @@ obj-$(CONFIG_FB_CONTROL)          += controlfb.o
 obj-$(CONFIG_FB_PLATINUM)         += platinumfb.o
 obj-$(CONFIG_FB_VALKYRIE)         += valkyriefb.o
 obj-$(CONFIG_FB_CT65550)          += chipsfb.o
+obj-$(CONFIG_FB_CLPS711X)         += clps711xfb.o
 obj-$(CONFIG_FB_CYBER)            += cyberfb.o
 obj-$(CONFIG_FB_CYBER2000)        += cyber2000fb.o
 obj-$(CONFIG_FB_SGIVW)            += sgivwfb.o
@@ -68,7 +69,7 @@ obj-$(CONFIG_FB_CLGEN)            += clgenfb.o fbgen.o
 obj-$(CONFIG_FB_TRIDENT)          += tridentfb.o fbgen.o
 obj-$(CONFIG_FB_S3TRIO)           += S3triofb.o
 obj-$(CONFIG_FB_TGA)              += tgafb.o fbgen.o
-obj-$(CONFIG_FB_VESA)             += vesafb.o 
+obj-$(CONFIG_FB_VESA)             += vesafb.o
 obj-$(CONFIG_FB_VGA16)            += vga16fb.o fbcon-vga-planes.o
 obj-$(CONFIG_FB_VIRGE)            += virgefb.o
 obj-$(CONFIG_FB_G364)             += g364fb.o
@@ -88,6 +89,10 @@ obj-$(CONFIG_FB_MAXINE)           += maxinefb.o
 obj-$(CONFIG_FB_TX3912)           += tx3912fb.o
 obj-$(CONFIG_FB_AU1100)		  += au1100fb.o fbgen.o
 obj-$(CONFIG_FB_IT8181)		  += it8181fb.o fbgen.o
+obj-$(CONFIG_FB_RUBY)		  += ruby_api.o ruby_local.o ruby_font.o
+obj-$(CONFIG_FB_BYD)		  += byd_api.o byd_local.o byd_font.o
+obj-$(CONFIG_FB_JEMITEK)	  += jemitek_api.o jemitek_local.o jemitek_font.o
+
 
 subdir-$(CONFIG_STI_CONSOLE)      += sti
 ifeq ($(CONFIG_STI_CONSOLE),y)
@@ -126,14 +131,16 @@ endif
 
 obj-$(CONFIG_FB_SUN3)             += sun3fb.o
 obj-$(CONFIG_FB_BWTWO)            += bwtwofb.o
-obj-$(CONFIG_FB_HGA)              += hgafb.o  
+obj-$(CONFIG_FB_HGA)              += hgafb.o
 obj-$(CONFIG_FB_SA1100)           += sa1100fb.o
-obj-$(CONFIG_FB_VIRTUAL)          += vfb.o  
+obj-$(CONFIG_FB_DBMX1)            += dbmx1fb.o
+obj-$(CONFIG_FB_VIRTUAL)          += vfb.o
 obj-$(CONFIG_FB_HIT)              += hitfb.o fbgen.o
 obj-$(CONFIG_FB_E1355)            += epson1355fb.o fbgen.o
 obj-$(CONFIG_FB_E1356)            += epson1356fb.o
 obj-$(CONFIG_FB_PVR2)             += pvr2fb.o
 obj-$(CONFIG_FB_VOODOO1)          += sstfb.o
+obj-$(CONFIG_FB_ANAKIN)           += anakinfb.o
 
 # Generic Low Level Drivers
 
@@ -169,4 +176,3 @@ promcon_tbl.c: prom.uni ../char/conmakehash
 	    -e 's/dfont\(_uni.*\]\)/promfont\1 __initdata/' > promcon_tbl.c
 
 promcon_tbl.o: promcon_tbl.c $(TOPDIR)/include/linux/types.h
-

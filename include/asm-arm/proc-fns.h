@@ -76,6 +76,30 @@
 #   define CPU_NAME arm926
 #  endif
 # endif
+# ifdef CONFIG_CPU_ARM1020
+#  ifdef CPU_NAME
+#   undef  MULTI_CPU
+#   define MULTI_CPU
+#  else
+#   define CPU_NAME arm1020
+#  endif
+# endif
+# ifdef CONFIG_CPU_ARM1020E
+#  ifdef CPU_NAME
+#   undef  MULTI_CPU
+#   define MULTI_CPU
+#  else
+#   define CPU_NAME arm1020E
+#  endif
+# endif
+# ifdef CONFIG_CPU_ARM1022
+#  ifdef CPU_NAME
+#   undef  MULTI_CPU
+#   define MULTI_CPU
+#  else
+#   define CPU_NAME arm1022
+#  endif
+# endif
 # ifdef CONFIG_CPU_ARM1026
 #  ifdef CPU_NAME
 #   undef  MULTI_CPU

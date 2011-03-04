@@ -198,7 +198,7 @@ repeat_locked:
 	/* OK, account for the buffers that this operation expects to
 	 * use and add the handle to the running transaction. */
 
-	handle->h_transaction = transaction;
+	WRITE_FIX(handle->h_transaction, transaction);
 	transaction->t_outstanding_credits += nblocks;
 	transaction->t_updates++;
 	transaction->t_handle_count++;
@@ -312,7 +312,7 @@ static int try_start_this_handle(journal_t *journal, handle_t *handle)
 	if (log_space_left(journal) < needed)
 		goto fail_unlock;
 
-	handle->h_transaction = transaction;
+	WRITE_FIX(handle->h_transaction, transaction);
 	transaction->t_outstanding_credits += nblocks;
 	transaction->t_updates++;
 	jbd_debug(4, "Handle %p given %d credits (total %d, free %d)\n",

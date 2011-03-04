@@ -57,7 +57,7 @@
 
 static unsigned int net_debug = NET_DEBUG;
 
-static const card_ids __init etherh_cids[] = {
+static card_ids __initdata etherh_cids[] = {
 	{ MANU_ANT, PROD_ANT_ETHERM      },
 	{ MANU_I3,  PROD_I3_ETHERLAN500  },
 	{ MANU_I3,  PROD_I3_ETHERLAN600  },

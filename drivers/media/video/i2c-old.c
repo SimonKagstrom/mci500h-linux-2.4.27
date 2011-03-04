@@ -36,10 +36,19 @@ static struct i2c_bus    *busses[I2C_BUS_MAX];
 static struct i2c_driver *drivers[I2C_DRIVER_MAX];
 static int bus_count = 0, driver_count = 0;
 
+extern int saa7111_init(void);
+extern int saa7185_init(void);
+extern int bt819_init(void);
+extern int bt856_init(void);
+
 int i2c_init(void)
 {
 	printk(KERN_INFO "i2c: initialized%s\n",
 		scan ? " (i2c bus scan enabled)" : "");
+
+#if defined(CONFIG_VIDEO_CYBERPRO)
+	saa7111_init();
+#endif
 
 	return 0;
 }
@@ -52,10 +61,10 @@ static void i2c_attach_device(struct i2c_bus *bus, struct i2c_driver *driver)
 	int i,j,ack=1;
 	unsigned char addr;
 	LOCK_FLAGS;
-    
+
 	/* probe for device */
 	LOCK_I2C_BUS(bus);
-	for (addr = driver->addr_l; addr <= driver->addr_h; addr += 2) 
+	for (addr = driver->addr_l; addr <= driver->addr_h; addr += 2)
 	{
 		i2c_start(bus);
 		ack = i2c_sendbyte(bus,addr,0);
@@ -87,8 +96,8 @@ static void i2c_attach_device(struct i2c_bus *bus, struct i2c_driver *driver)
 	device->addr = addr;
 
 	/* Attach */
-	
-	if (driver->attach(device)!=0) 
+
+	if (driver->attach(device)!=0)
 	{
 		kfree(device);
 		return;
@@ -114,7 +123,7 @@ static void i2c_detach_device(struct i2c_device *device)
 	for (i = 0; i < I2C_DEVICE_MAX; i++)
 		if (device == device->driver->devices[i])
 			break;
-	if (I2C_DEVICE_MAX == i) 
+	if (I2C_DEVICE_MAX == i)
 	{
 		printk(KERN_WARNING "i2c: detach_device #1: device not found: %s\n",
 			device->name);
@@ -126,7 +135,7 @@ static void i2c_detach_device(struct i2c_device *device)
 	for (i = 0; i < I2C_DEVICE_MAX; i++)
 		if (device == device->bus->devices[i])
 			break;
-	if (I2C_DEVICE_MAX == i) 
+	if (I2C_DEVICE_MAX == i)
 	{
 		printk(KERN_WARNING "i2c: detach_device #2: device not found: %s\n",
 		       device->name);
@@ -158,19 +167,19 @@ int i2c_register_bus(struct i2c_bus *bus)
 	busses[i] = bus;
 	bus_count++;
 	REGPRINT(printk("i2c: bus registered: %s\n",bus->name));
-	
+
 	MOD_INC_USE_COUNT;
 
-	if (scan) 
+	if (scan)
 	{
 		/* scan whole i2c bus */
 		LOCK_I2C_BUS(bus);
-		for (i = 0; i < 256; i+=2) 
+		for (i = 0; i < 256; i+=2)
 		{
 			i2c_start(bus);
 			ack = i2c_sendbyte(bus,i,0);
 			i2c_stop(bus);
-			if (!ack) 
+			if (!ack)
 			{
 				printk(KERN_INFO "i2c: scanning bus %s: found device at addr=0x%02x\n",
 					bus->name,i);
@@ -198,20 +207,20 @@ int i2c_unregister_bus(struct i2c_bus *bus)
 	for (i = 0; i < I2C_BUS_MAX; i++)
 		if (bus == busses[i])
 			break;
-	if (I2C_BUS_MAX == i) 
+	if (I2C_BUS_MAX == i)
 	{
 		printk(KERN_WARNING "i2c: unregister_bus #1: bus not found: %s\n",
 			bus->name);
 		return -ENODEV;
 	}
-	
+
 	MOD_DEC_USE_COUNT;
-	
+
 	busses[i] = NULL;
 	bus_count--;
 	REGPRINT(printk("i2c: bus unregistered: %s\n",bus->name));
 
-	return 0;    
+	return 0;
 }
 
 /* ----------------------------------------------------------------------- */
@@ -231,9 +240,9 @@ int i2c_register_driver(struct i2c_driver *driver)
 
 	drivers[i] = driver;
 	driver_count++;
-	
+
 	MOD_INC_USE_COUNT;
-	
+
 	REGPRINT(printk("i2c: driver registered: %s\n",driver->name));
 
 	/* Probe available busses */
@@ -256,7 +265,7 @@ int i2c_unregister_driver(struct i2c_driver *driver)
 	for (i = 0; i < I2C_DRIVER_MAX; i++)
 		if (driver == drivers[i])
 			break;
-	if (I2C_DRIVER_MAX == i) 
+	if (I2C_DRIVER_MAX == i)
 	{
 		printk(KERN_WARNING "i2c: unregister_driver: driver not found: %s\n",
 			driver->name);
@@ -264,7 +273,7 @@ int i2c_unregister_driver(struct i2c_driver *driver)
 	}
 
 	MOD_DEC_USE_COUNT;
-	
+
 	drivers[i] = NULL;
 	driver_count--;
 	REGPRINT(printk("i2c: driver unregistered: %s\n",driver->name));
@@ -328,7 +337,7 @@ void i2c_zero(struct i2c_bus *bus)
 int i2c_ack(struct i2c_bus *bus)
 {
 	int ack;
-    
+
 	I2C_SET(bus,0,1);
 	I2C_SET(bus,1,1);
 	ack = I2C_GET(bus);
@@ -339,7 +348,7 @@ int i2c_ack(struct i2c_bus *bus)
 int i2c_sendbyte(struct i2c_bus *bus,unsigned char data,int wait_for_ack)
 {
 	int i, ack;
-    
+
 	I2C_SET(bus,0,0);
 	for (i=7; i>=0; i--)
 		(data&(1<<i)) ? i2c_one(bus) : i2c_zero(bus);
@@ -354,9 +363,9 @@ unsigned char i2c_readbyte(struct i2c_bus *bus,int last)
 {
 	int i;
 	unsigned char data=0;
-    
+
 	I2C_SET(bus,0,1);
-	for (i=7; i>=0; i--) 
+	for (i=7; i>=0; i--)
 	{
 		I2C_SET(bus,1,1);
 		if (I2C_GET(bus))
@@ -373,7 +382,7 @@ unsigned char i2c_readbyte(struct i2c_bus *bus,int last)
 int i2c_read(struct i2c_bus *bus, unsigned char addr)
 {
 	int ret;
-    
+
 	if (bus->i2c_read)
 		return bus->i2c_read(bus, addr);
 

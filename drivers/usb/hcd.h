@@ -50,7 +50,7 @@ struct usb_hcd {	/* usb_bus.hcpriv points to this */
 	int			irq;		/* irq allocated */
 	void			*regs;		/* device memory/io */
 
-#ifdef	CONFIG_PCI
+#if	defined(CONFIG_PCI) || defined(CONFIG_USB_EHCI_PNX0106)
 	/* a few non-PCI controllers exist, mostly for OHCI */
 	struct pci_dev		*pdev;		/* pci is typical */
 	int			region;		/* pci region for regs */

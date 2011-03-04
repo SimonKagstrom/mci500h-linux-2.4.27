@@ -4,6 +4,7 @@
 #if defined(__KERNEL__) || defined(_LVM_H_INCLUDE)
 
 #include <linux/prefetch.h>
+#include <linux/kernel.h>		/* WRITE_FIX macro */
 
 /*
  * Simple doubly linked list implementation.
@@ -38,10 +39,10 @@ static inline void __list_add(struct list_head *new,
 			      struct list_head *prev,
 			      struct list_head *next)
 {
-	next->prev = new;
-	new->next = next;
-	new->prev = prev;
-	prev->next = new;
+	WRITE_FIX(next->prev, new);
+	WRITE_FIX(new->next, next);
+	WRITE_FIX(new->prev, prev);
+	WRITE_FIX(prev->next, new);
 }
 
 /**
@@ -79,8 +80,8 @@ static inline void list_add_tail(struct list_head *new, struct list_head *head)
  */
 static inline void __list_del(struct list_head *prev, struct list_head *next)
 {
-	next->prev = prev;
-	prev->next = next;
+	WRITE_FIX(next->prev, prev);
+	WRITE_FIX(prev->next, next);
 }
 
 /**
@@ -91,8 +92,8 @@ static inline void __list_del(struct list_head *prev, struct list_head *next)
 static inline void list_del(struct list_head *entry)
 {
 	__list_del(entry->prev, entry->next);
-	entry->next = (void *) 0;
-	entry->prev = (void *) 0;
+	WRITE_FIX(entry->next, (void *)0);
+	WRITE_FIX(entry->prev, (void *)0);
 }
 
 /**
@@ -144,11 +145,11 @@ static inline void __list_splice(struct list_head *list,
 	struct list_head *last = list->prev;
 	struct list_head *at = head->next;
 
-	first->prev = head;
-	head->next = first;
+	WRITE_FIX(first->prev, head);
+	WRITE_FIX(head->next, first);
 
-	last->next = at;
-	at->prev = last;
+	WRITE_FIX(last->next, at);
+	WRITE_FIX(at->prev, last);
 }
 
 /**

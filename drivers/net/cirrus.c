@@ -1,4 +1,3 @@
-
 /*
  * linux/drivers/net/cirrus.c
  *
@@ -52,11 +51,17 @@
 #include <linux/netdevice.h>
 #include <linux/etherdevice.h>
 #include <linux/skbuff.h>
+#include <linux/spinlock.h>
 
 #include "cirrus.h"
 
-/* #define DEBUG */
-/* #define FULL_DUPLEX */
+#if 0
+#define DEBUG
+#endif
+
+#if 0
+#define FULL_DUPLEX
+#endif
 
 #ifdef CONFIG_SA1100_FRODO
 #	define CIRRUS_DEFAULT_IO FRODO_ETH_IO + 0x300
@@ -67,61 +72,108 @@
 #elif CONFIG_ARCH_CDB89712
 #	define CIRRUS_DEFAULT_IO ETHER_BASE + 0x300
 #	define CIRRUS_DEFAULT_IRQ IRQ_EINT3
+#elif CONFIG_ARCH_SSA
+
+#include <asm/arch/tsc.h>
+
+/*
+   Note: Depending on the CPLD hardware configuration EBI chipselect 1 may be
+         in use by the ATA interface - in which case the CS8900 is not available.
+	 Therefore we need to attempt to ioremap the physical memory rather than
+	 using a hardcoded static address mapping.
+*/
+
+#define CIRRUS_DEFAULT_BASE	SSA_NCS1_BASE	/* Physical address !! */
+#define CIRRUS_DEFAULT_IRQ	INT_CS8900
+
+extern unsigned char eth0mac[6];	/* value may be set from a boot tag passed by the bootloader... */
+
+#elif CONFIG_ARCH_PNX0106
+
+#include <asm/arch/tsc.h>
+
+/*
+   Note: Depending on the CPLD hardware configuration EBI chipselect 1 may be
+         in use by the ATA interface - in which case the CS8900 is not available.
+	 Therefore we need to attempt to ioremap the physical memory rather than
+	 using a hardcoded static address mapping.
+*/
+
+#define CIRRUS_DEFAULT_BASE	CS8900_REGS_BASE	/* Physical address !! */
+#define CIRRUS_DEFAULT_IRQ	IRQ_ETHERNET
+
+extern unsigned char eth0mac[6];	/* value may be set from a boot tag passed by the bootloader... */
+
 #else
 #	define CIRRUS_DEFAULT_IO	0
 #	define CIRRUS_DEFAULT_IRQ	0
-#endif	/* #ifdef CONFIG_SA1100_CERF */
+#endif
+
 
 typedef struct {
 	struct net_device_stats stats;
 	u16 txlen;
+	u16 txafter;	/* Default is After5 (0) */
 } cirrus_t;
 
+#ifdef CIRRUS_EEPROM_SUPPORT
 typedef struct {
-	u16 io_base;		/* I/O Base Address			*/
-	u16 irq;			/* Interrupt Number			*/
-	u16 dma;			/* DMA Channel Numbers		*/
+	u16 io_base;		/* I/O Base Address		*/
+	u16 irq;		/* Interrupt Number		*/
+	u16 dma;		/* DMA Channel Numbers		*/
 	u32 mem_base;		/* Memory Base Address		*/
 	u32 rom_base;		/* Boot PROM Base Address	*/
 	u32 rom_mask;		/* Boot PROM Address Mask	*/
-	u8 mac[6];			/* Individual Address		*/
+	u8 mac[6];		/* Individual Address		*/
 } cirrus_eeprom_t;
+#endif
+
+typedef struct {
+	struct sk_buff 		*skb;
+	struct net_device	*dev;
+} cirrus_tx_data_t;
+
+static cirrus_tx_data_t tx_data;
+static void cirrus_tx_tasklet(unsigned long data);
+DECLARE_TASKLET(cirrus_tasklet, cirrus_tx_tasklet, 0);
+
 
 /*
  * I/O routines
  */
 
-static inline u16 cirrus_read (struct net_device *dev,u16 reg)
+static inline u16 cirrus_read (struct net_device *dev, u16 reg)
 {
-	outw (reg,dev->base_addr + PP_Address);
+	outw (reg, dev->base_addr + PP_Address);
 	return (inw (dev->base_addr + PP_Data));
 }
 
-static inline void cirrus_write (struct net_device *dev,u16 reg,u16 value)
+static inline void cirrus_write (struct net_device *dev, u16 reg, u16 value)
 {
-	outw (reg,dev->base_addr + PP_Address);
+	outw (reg, dev->base_addr + PP_Address);
 	outw (value,dev->base_addr + PP_Data);
 }
 
-static inline void cirrus_set (struct net_device *dev,u16 reg,u16 value)
+static inline void cirrus_set (struct net_device *dev, u16 reg, u16 value)
 {
-	cirrus_write (dev,reg,cirrus_read (dev,reg) | value);
+	cirrus_write (dev, reg, cirrus_read (dev, reg) | value);
 }
 
-static inline void cirrus_clear (struct net_device *dev,u16 reg,u16 value)
+static inline void cirrus_clear (struct net_device *dev, u16 reg, u16 value)
 {
-	cirrus_write (dev,reg,cirrus_read (dev,reg) & ~value);
+	cirrus_write (dev, reg, cirrus_read (dev, reg) & ~value);
 }
 
-static inline void cirrus_frame_read (struct net_device *dev,struct sk_buff *skb,u16 length)
+static inline void cirrus_frame_read (struct net_device *dev, struct sk_buff *skb, u16 length)
 {
-	insw (dev->base_addr,skb_put (skb,length),(length + 1) / 2);
+	insw (dev->base_addr, skb_put (skb,length), (length + 1) / 2);
 }
 
-static inline void cirrus_frame_write (struct net_device *dev,struct sk_buff *skb)
+static inline void cirrus_frame_write (struct net_device *dev, struct sk_buff *skb)
 {
-	outsw (dev->base_addr,skb->data,(skb->len + 1) / 2);
+	outsw (dev->base_addr, skb->data, (skb->len + 1) / 2);
 }
+
 
 /*
  * Debugging functions
@@ -130,10 +182,10 @@ static inline void cirrus_frame_write (struct net_device *dev,struct sk_buff *sk
 #ifdef DEBUG
 static inline int printable (int c)
 {
-	return ((c >= 32 && c <= 126) ||
-			(c >= 174 && c <= 223) ||
-			(c >= 242 && c <= 243) ||
-			(c >= 252 && c <= 253));
+	return ((c >= 32  && c <= 126) ||
+		(c >= 174 && c <= 223) ||
+		(c >= 242 && c <= 243) ||
+		(c >= 252 && c <= 253));
 }
 
 static void dump16 (struct net_device *dev,const u8 *s,size_t len)
@@ -182,6 +234,7 @@ static void dump_packet (struct net_device *dev,struct sk_buff *skb,const char *
 }
 #endif	/* #ifdef DEBUG */
 
+
 /*
  * Driver functions
  */
@@ -196,6 +249,9 @@ static void cirrus_receive (struct net_device *dev)
 	length = cirrus_read (dev,PP_RxLength);
 
 	if (!(status & RxOK)) {
+        
+                printk ("cirrus_receive: status = 0x%04x\n", status);
+        
 		priv->stats.rx_errors++;
 		if ((status & (Runt | Extradata))) priv->stats.rx_length_errors++;
 		if ((status & CRCerror)) priv->stats.rx_crc_errors++;
@@ -214,7 +270,7 @@ static void cirrus_receive (struct net_device *dev)
 
 #ifdef DEBUG
 	dump_packet (dev,skb,"recv");
-#endif	/* #ifdef DEBUG */
+#endif
 
 	skb->protocol = eth_type_trans (skb,dev);
 
@@ -230,56 +286,81 @@ static int cirrus_send_start (struct sk_buff *skb,struct net_device *dev)
 	cirrus_t *priv = (cirrus_t *) dev->priv;
 	u16 status;
 
+	/* Tx start must be done with irq disabled
+	 * else status can be wrong */
+	disable_irq (dev->irq);
+ 
 	netif_stop_queue (dev);
-
-	cirrus_write (dev,PP_TxCMD,TxStart (After5));
+	cirrus_write (dev,PP_TxCMD,TxStart (priv->txafter));
 	cirrus_write (dev,PP_TxLength,skb->len);
 
 	status = cirrus_read (dev,PP_BusST);
 
-	if ((status & TxBidErr)) {
+	enable_irq (dev->irq);
+
+	if (unlikely (status & TxBidErr)) {
 		printk (KERN_WARNING "%s: Invalid frame size %d!\n",dev->name,skb->len);
 		priv->stats.tx_errors++;
 		priv->stats.tx_aborted_errors++;
 		priv->txlen = 0;
-		return (1);
+		return 1;
 	}
 
-	if (!(status & Rdy4TxNOW)) {
+	if (unlikely (!(status & Rdy4TxNOW))) {
+#if 0
 		printk (KERN_WARNING "%s: Transmit buffer not free!\n",dev->name);
 		priv->stats.tx_errors++;
 		priv->txlen = 0;
-		/* FIXME: store skb and send it in interrupt handler */
-		return (1);
+#endif
+		/* Queue SKB for transmission when tx buffer becomes 
+		 * available.
+		 */
+		tx_data.dev = dev;
+		tx_data.skb = skb;
+		return 0;
 	}
 
 	cirrus_frame_write (dev,skb);
 
 #ifdef DEBUG
 	dump_packet (dev,skb,"send");
-#endif	/* #ifdef DEBUG */
+#endif
 
 	dev->trans_start = jiffies;
-
 	dev_kfree_skb (skb);
-
 	priv->txlen = skb->len;
+	return 0;
+}
 
-	return (0);
+static void cirrus_tx_tasklet (unsigned long data)
+{
+	struct net_device *dev = tx_data.dev;
+	struct sk_buff *skb = tx_data.skb;
+	cirrus_t *priv = (cirrus_t *) dev->priv;
+
+	tx_data.dev = NULL;
+	tx_data.skb = NULL;
+	cirrus_frame_write (dev, skb);
+#ifdef DEBUG
+	dump_packet (dev,skb,"send");
+#endif
+
+	dev->trans_start = jiffies;
+	dev_kfree_skb (skb);
+	priv->txlen = skb->len;
+	netif_wake_queue (dev);
 }
 
 static void cirrus_interrupt (int irq,void *id,struct pt_regs *regs)
 {
 	struct net_device *dev = (struct net_device *) id;
-	cirrus_t *priv;
+	cirrus_t *priv = (cirrus_t *) dev->priv;
 	u16 status;
 
-	if (dev->priv == NULL) {
-		printk (KERN_WARNING "%s: irq %d for unknown device.\n",dev->name,irq);
+	if (unlikely (priv == NULL)) {
+		printk (KERN_WARNING "%s: irq %d for unknown device.\n", dev->name, irq);
 		return;
 	}
-
-	priv = (cirrus_t *) dev->priv;
 
 	while ((status = cirrus_read (dev,PP_ISQ))) {
 		switch (RegNum (status)) {
@@ -299,36 +380,52 @@ static void cirrus_interrupt (int irq,void *id,struct pt_regs *regs)
 				priv->stats.tx_bytes += priv->txlen;
 			}
 			priv->txlen = 0;
-			netif_wake_queue (dev);
+			if (tx_data.skb == NULL)
+				netif_wake_queue (dev);
 			break;
 
 		case BufEvent:
 			if ((RegContent (status) & RxMiss)) {
+//				printk ("cirrus_interrupt(): RxMiss BufEvent\n");
 				u16 missed = MissCount (cirrus_read (dev,PP_RxMISS));
 				priv->stats.rx_errors += missed;
 				priv->stats.rx_missed_errors += missed;
 			}
-			if ((RegContent (status) & TxUnderrun)) {
-				priv->stats.tx_errors++;
-				priv->stats.tx_fifo_errors++;
+			if ((RegContent (status) & Rdy4Tx)) {
+				tasklet_schedule(&cirrus_tasklet);
 			}
-			/* FIXME: if Rdy4Tx, transmit last sent packet (if any) */
-			priv->txlen = 0;
-			netif_wake_queue (dev);
-			break;
-
-		case TxCOL:
-			priv->stats.collisions += ColCount (cirrus_read (dev,PP_TxCOL));
+			if ((RegContent (status) & TxUnderrun)) {
+//				printk ("cirrus_interrupt(): TxUnderrun BufEvent\n");
+				priv->stats.tx_errors++;
+				/* Shift start tx, if underruns come too often */
+				switch (++priv->stats.tx_fifo_errors >> 2) {
+					case 1: priv->txafter = After381; break;
+					case 2: priv->txafter = After1021; break;
+					default: priv->txafter = AfterAll; break;
+				}
+			}
+			if (RegContent (status) & TxUnderrun) {
+				priv->txlen = 0;
+				if (tx_data.skb == NULL)
+					netif_wake_queue (dev);
+                        }
 			break;
 
 		case RxMISS:
+                        printk ("cirrus_interrupt(): RxMISS\n");
 			status = MissCount (cirrus_read (dev,PP_RxMISS));
 			priv->stats.rx_errors += status;
 			priv->stats.rx_missed_errors += status;
 			break;
+
+		case TxCOL:
+                        printk ("cirrus_interrupt(): TxCol\n");
+			priv->stats.collisions += ColCount (cirrus_read (dev,PP_TxCOL));
+			break;
 		}
 	}
 }
+
 
 static void cirrus_transmit_timeout (struct net_device *dev)
 {
@@ -336,8 +433,10 @@ static void cirrus_transmit_timeout (struct net_device *dev)
 	priv->stats.tx_errors++;
 	priv->stats.tx_heartbeat_errors++;
 	priv->txlen = 0;
-	netif_wake_queue (dev);
+	if (tx_data.skb == NULL)
+		netif_wake_queue (dev);
 }
+
 
 static int cirrus_start (struct net_device *dev)
 {
@@ -350,29 +449,30 @@ static int cirrus_start (struct net_device *dev)
 	}
 
 	/* install interrupt handler */
-	if ((result = request_irq (dev->irq,&cirrus_interrupt,0,dev->name,dev)) < 0) {
+	if ((result = request_irq (dev->irq, &cirrus_interrupt, 0, dev->name, dev)) < 0) {
 		printk (KERN_ERR "%s: could not register interrupt %d\n",dev->name,dev->irq);
 		return (result);
 	}
-
+    
 	/* enable the ethernet controller */
 	cirrus_set (dev,PP_RxCFG,RxOKiE | BufferCRC | CRCerroriE | RuntiE | ExtradataiE);
 	cirrus_set (dev,PP_RxCTL,RxOKA | IndividualA | BroadcastA);
 	cirrus_set (dev,PP_TxCFG,TxOKiE | Out_of_windowiE | JabberiE);
-	cirrus_set (dev,PP_BufCFG,Rdy4TxiE | RxMissiE | TxUnderruniE | TxColOvfiE | MissOvfloiE);
+	cirrus_set (dev,PP_BufCFG, Rdy4TxiE | RxMissiE | TxUnderruniE | TxColOvfiE | MissOvfloiE);
 	cirrus_set (dev,PP_LineCTL,SerRxON | SerTxON);
-	cirrus_set (dev,PP_BusCTL,EnableRQ);
 
 #ifdef FULL_DUPLEX
 	cirrus_set (dev,PP_TestCTL,FDX);
-#endif	/* #ifdef FULL_DUPLEX */
+#endif
+
+	cirrus_set (dev,PP_BusCTL,EnableRQ);
 
 	/* start the queue */
 	netif_start_queue (dev);
 
 	MOD_INC_USE_COUNT;
 
-	return (0);
+	return 0;
 }
 
 static int cirrus_stop (struct net_device *dev)
@@ -395,7 +495,7 @@ static int cirrus_stop (struct net_device *dev)
 
 	MOD_DEC_USE_COUNT;
 
-	return (0);
+	return 0;
 }
 
 static int cirrus_set_mac_address (struct net_device *dev, void *p)
@@ -428,11 +528,14 @@ static void cirrus_set_receive_mode (struct net_device *dev)
 	else
 		cirrus_clear (dev,PP_RxCTL,PromiscuousA);
 
-	if ((dev->flags & IFF_ALLMULTI) && dev->mc_list)
+	if ((dev->flags & IFF_ALLMULTI) || dev->mc_list)
 		cirrus_set (dev,PP_RxCTL,MulticastA);
 	else
 		cirrus_clear (dev,PP_RxCTL,MulticastA);
 }
+
+
+#ifdef CIRRUS_EEPROM_SUPPORT
 
 static int cirrus_eeprom_wait (struct net_device *dev)
 {
@@ -534,6 +637,9 @@ static int cirrus_eeprom (struct net_device *dev,cirrus_eeprom_t *eeprom)
 	return (0);
 }
 
+#endif	/* CIRRUS_EEPROM_SUPPORT */
+
+
 /*
  * Architecture dependant code
  */
@@ -561,15 +667,19 @@ static void frodo_reset (struct net_device *dev)
  * Driver initialization routines
  */
 
+#ifndef CONFIG_ARCH_SSA
 static int io = 0;
 static int irq = 0;
+#endif
 
 int __init cirrus_probe (struct net_device *dev)
 {
 	static cirrus_t priv;
-	int i,result;
+	int i;
 	u16 value;
+#ifdef CIRRUS_EEPROM_SUPPORT
 	cirrus_eeprom_t eeprom;
+#endif
 
 	printk ("Cirrus Logic CS8900A driver for Linux (V0.02)\n");
 
@@ -577,9 +687,9 @@ int __init cirrus_probe (struct net_device *dev)
 
 	ether_setup (dev);
 
-	dev->open               = cirrus_start;
+	dev->open               = cirrus_start;             /* fixme: rename cirrus_open */
 	dev->stop               = cirrus_stop;
-	dev->hard_start_xmit    = cirrus_send_start;
+	dev->hard_start_xmit    = cirrus_send_start;        /* fixme: rename cirrus_hard_start_xmit */
 	dev->get_stats          = cirrus_get_stats;
 	dev->set_multicast_list = cirrus_set_receive_mode;
 	dev->set_mac_address	= cirrus_set_mac_address;
@@ -597,6 +707,46 @@ int __init cirrus_probe (struct net_device *dev)
 	dev->priv      = (void *) &priv;
 
 	SET_MODULE_OWNER (dev);
+
+#if defined (CONFIG_ARCH_SSA)       || \
+    defined (CONFIG_ARCH_PNX0106)
+
+	dev->irq = CIRRUS_DEFAULT_IRQ;
+	
+	if ((check_region (CIRRUS_DEFAULT_BASE, 16) != 0) ||
+	    (!request_region (CIRRUS_DEFAULT_BASE, 16, dev->name)))
+        {
+		printk ("CS8900 registers physical memory (0x%08x) already claimed\n", CIRRUS_DEFAULT_BASE);
+		return -ENODEV;
+	}
+
+	dev->base_addr = (unsigned long) ioremap_nocache (CIRRUS_DEFAULT_BASE, 16);
+	if (dev->base_addr == 0) {
+		printk ("Failed to ioremap CS8900 registers at phys 0x%08x\n", CIRRUS_DEFAULT_BASE);
+		return -ENODEV;
+	}
+
+	if (((dev->dev_addr[0] = eth0mac[0]) |
+	     (dev->dev_addr[1] = eth0mac[1]) |
+	     (dev->dev_addr[2] = eth0mac[2]) |
+	     (dev->dev_addr[3] = eth0mac[3]) |
+	     (dev->dev_addr[4] = eth0mac[4]) |
+	     (dev->dev_addr[5] = eth0mac[5])) == 0)
+	{
+                printk ("eth0mac is empty... fallback to semi-random MAC address\n");
+
+		dev->dev_addr[0] = 0x12;
+		dev->dev_addr[1] = 0x34;
+		dev->dev_addr[2] = 0x56;
+		dev->dev_addr[3] = 0x78;
+		dev->dev_addr[4] = 0x00;
+		dev->dev_addr[5] = ReadTSC();	/* attempt at a random last byte... */
+	}
+
+	/* we tied SBHE to CHIPSEL, so give a few dummy reads to ensure chip is in 16-bit mode */
+	for (i = 0; i < 3; i++) cirrus_read (dev, 0);
+
+#else
 
 	dev->base_addr = CIRRUS_DEFAULT_IO;
 	dev->irq = CIRRUS_DEFAULT_IRQ;
@@ -621,9 +771,9 @@ int __init cirrus_probe (struct net_device *dev)
 		return (-EINVAL);
 	}
 
-	if ((result = check_region (dev->base_addr,16))) {
+	if ((i = check_region (dev->base_addr,16))) {
 		printk (KERN_ERR "%s: can't get I/O port address 0x%lx\n",dev->name,dev->base_addr);
-		return (result);
+		return i;
 	}
 
 	if (!request_region (dev->base_addr,16,dev->name))
@@ -631,12 +781,20 @@ int __init cirrus_probe (struct net_device *dev)
 
 #ifdef CONFIG_SA1100_FRODO
 	frodo_reset (dev);
-#endif	/* #ifdef CONFIG_SA1100_FRODO */
+#endif
+
+#ifdef CIRRUS_EEPROM_SUPPORT
 
 	/* if an EEPROM is present, use it's MAC address */
 	if (!cirrus_eeprom (dev,&eeprom))
 		for (i = 0; i < 6; i++)
 			dev->dev_addr[i] = eeprom.mac[i];
+
+#else
+#error "Config options are messed up..."
+#endif	/* CIRRUS_EEPROM_SUPPORT */
+#endif	/* CONFIG_ARCH_SSA */
+
 
 	/* verify EISA registration number for Cirrus Logic */
 	if ((value = cirrus_read (dev,PP_ProductID)) != EISA_REG_CODE) {
@@ -675,7 +833,7 @@ static int __init cirrus_init (void)
 
 static void __exit cirrus_cleanup (void)
 {
-	release_region (dev.base_addr,16);
+	release_region (dev.base_addr, 16);
 	unregister_netdev (&dev);
 }
 

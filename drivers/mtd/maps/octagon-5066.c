@@ -1,4 +1,4 @@
-// $Id: octagon-5066.c,v 1.20 2003/01/07 17:21:55 dwmw2 Exp $
+// $Id: octagon-5066.c,v 1.24 2003/05/21 15:15:07 dwmw2 Exp $
 /* ######################################################################
 
    Octagon 5066 MTD Driver. 
@@ -31,6 +31,7 @@
 #include <asm/io.h>
 
 #include <linux/mtd/map.h>
+#include <linux/mtd/mtd.h>
 
 #define WINDOW_START 0xe8000
 #define WINDOW_LENGTH 0x8000
@@ -151,32 +152,34 @@ static void oct5066_copy_to(struct map_info *map, unsigned long to, const void *
 
 static struct map_info oct5066_map[2] = {
 	{
-		name: "Octagon 5066 Socket",
-		size: 512 * 1024,
-		buswidth: 1,
-		read8: oct5066_read8,
-		read16: oct5066_read16,
-		read32: oct5066_read32,
-		copy_from: oct5066_copy_from,
-		write8: oct5066_write8,
-		write16: oct5066_write16,
-		write32: oct5066_write32,
-		copy_to: oct5066_copy_to,
-		map_priv_1: 1<<6
+		.name = "Octagon 5066 Socket",
+		.phys = NO_XIP,
+		.size = 512 * 1024,
+		.buswidth = 1,
+		.read8 = oct5066_read8,
+		.read16 = oct5066_read16,
+		.read32 = oct5066_read32,
+		.copy_from = oct5066_copy_from,
+		.write8 = oct5066_write8,
+		.write16 = oct5066_write16,
+		.write32 = oct5066_write32,
+		.copy_to = oct5066_copy_to,
+		.map_priv_1 = 1<<6
 	},
 	{
-		name: "Octagon 5066 Internal Flash",
-		size: 2 * 1024 * 1024,
-		buswidth: 1,
-		read8: oct5066_read8,
-		read16: oct5066_read16,
-		read32: oct5066_read32,
-		copy_from: oct5066_copy_from,
-		write8: oct5066_write8,
-		write16: oct5066_write16,
-		write32: oct5066_write32,
-		copy_to: oct5066_copy_to,
-		map_priv_1: 2<<6
+		.name = "Octagon 5066 Internal Flash",
+		.phys = NO_XIP,
+		.size = 2 * 1024 * 1024,
+		.buswidth = 1,
+		.read8 = oct5066_read8,
+		.read16 = oct5066_read16,
+		.read32 = oct5066_read32,
+		.copy_from = oct5066_copy_from,
+		.write8 = oct5066_write8,
+		.write16 = oct5066_write16,
+		.write32 = oct5066_write32,
+		.copy_to = oct5066_copy_to,
+		.map_priv_1 = 2<<6
 	}
 };
 
@@ -261,7 +264,7 @@ int __init init_oct5066(void)
 		if (!oct5066_mtd[i])
 			oct5066_mtd[i] = do_map_probe("map_rom", &oct5066_map[i]);
 		if (oct5066_mtd[i]) {
-			oct5066_mtd[i]->module = THIS_MODULE;
+			oct5066_mtd[i]->owner = THIS_MODULE;
 			add_mtd_device(oct5066_mtd[i]);
 		}
 	}

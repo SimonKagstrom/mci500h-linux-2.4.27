@@ -26,19 +26,6 @@
 #include <asm/mach/dma.h>
 #include <asm/hardware/iomd.h>
 
-#if 0
-typedef enum {
-	dma_size_8	= 1,
-	dma_size_16	= 2,
-	dma_size_32	= 4,
-	dma_size_128	= 16
-} dma_size_t;
-
-typedef struct {
-	dma_size_t	transfersize;
-} dma_t;
-#endif
-
 #define TRANSFER_SIZE	2
 
 #define CURA	(0)
@@ -47,10 +34,6 @@ typedef struct {
 #define ENDB	(IOMD_IO0ENDB - IOMD_IO0CURA)
 #define CR	(IOMD_IO0CR - IOMD_IO0CURA)
 #define ST	(IOMD_IO0ST - IOMD_IO0CURA)
-
-#define state_prog_a	0
-#define state_wait_a	1
-#define state_wait_b	2
 
 static void iomd_get_next_sg(struct scatterlist *sg, dma_t *dma)
 {
@@ -65,7 +48,7 @@ static void iomd_get_next_sg(struct scatterlist *sg, dma_t *dma)
 		if (end > PAGE_SIZE)
 			end = PAGE_SIZE;
 
-		if (offset + (int) TRANSFER_SIZE > end)
+		if (offset + TRANSFER_SIZE >= end)
 			flags |= DMA_END_L;
 
 		sg->length = end - TRANSFER_SIZE;
@@ -103,27 +86,31 @@ static void iomd_dma_handle(int irq, void *dev_id, struct pt_regs *regs)
 		if (!(status & DMA_ST_INT))
 			return;
 
-		if (status & DMA_ST_OFL && !dma->sg)
-			break;
-
-		iomd_get_next_sg(&dma->cur_sg, dma);
+		if ((dma->state ^ status) & DMA_ST_AB)
+			iomd_get_next_sg(&dma->cur_sg, dma);
 
 		switch (status & (DMA_ST_OFL | DMA_ST_AB)) {
 		case DMA_ST_OFL:			/* OIA */
 		case DMA_ST_AB:				/* .IB */
 			iomd_writel(dma->cur_sg.dma_address, base + CURA);
 			iomd_writel(dma->cur_sg.length, base + ENDA);
+			dma->state = DMA_ST_AB;
 			break;
 
 		case DMA_ST_OFL | DMA_ST_AB:		/* OIB */
 		case 0:					/* .IA */
 			iomd_writel(dma->cur_sg.dma_address, base + CURB);
 			iomd_writel(dma->cur_sg.length, base + ENDB);
+			dma->state = 0;
 			break;
 		}
+
+		if (status & DMA_ST_OFL &&
+		    dma->cur_sg.length == (DMA_END_S|DMA_END_L))
+			break;
 	} while (1);
 
-	iomd_writeb(0, base + CR);
+	dma->state = ~DMA_ST_AB;
 	disable_irq(irq);
 }
 
@@ -158,6 +145,7 @@ static void iomd_enable_dma(dmach_t channel, dma_t *dma)
 		}
 
 		iomd_writeb(DMA_CR_C, dma_base + CR);
+		dma->state = DMA_ST_AB;
 	}
 		
 	if (dma->dma_mode == DMA_MODE_READ)
@@ -171,13 +159,11 @@ static void iomd_disable_dma(dmach_t channel, dma_t *dma)
 {
 	unsigned long dma_base = dma->dma_base;
 	unsigned long flags;
-	unsigned int ctrl;
 
 	local_irq_save(flags);
-	ctrl = iomd_readb(dma_base + CR);
-	if (ctrl & DMA_CR_E)
+	if (dma->state != ~DMA_ST_AB)
 		disable_irq(dma->dma_irq);
-	iomd_writeb(ctrl & ~DMA_CR_E, dma_base + CR);
+	iomd_writeb(0, dma_base + CR);
 	local_irq_restore(flags);
 }
 

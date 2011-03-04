@@ -17,7 +17,15 @@
 
 static inline void AT91_CfgPIO_USART0(void) {
 	AT91_SYS->PIOA_PDR = AT91C_PA17_TXD0 | AT91C_PA18_RXD0
-		| AT91C_PA20_CTS0 | AT91C_PA21_RTS0;
+		| AT91C_PA20_CTS0;
+
+	/*
+	 * Errata #39 - RTS0 is not internally connected to PA21.  We need to drive
+	 *  the pin manually.  Default is off (RTS is active low).
+	 */
+	AT91_SYS->PIOA_PER = AT91C_PA21_RTS0;
+	AT91_SYS->PIOA_OER = AT91C_PA21_RTS0;
+	AT91_SYS->PIOA_SODR = AT91C_PA21_RTS0;
 }
 
 static inline void AT91_CfgPIO_USART1(void) {
@@ -63,6 +71,18 @@ static inline void AT91_CfgPIO_EMAC_MII(void) {
 	AT91_SYS->PIOB_BSR = AT91C_PB25_EF100 | AT91C_PB19_ERXCK | AT91C_PB18_ECOL | AT91C_PB17_ERXDV
 		| AT91C_PB16_ERX3 | AT91C_PB15_ERX2 | AT91C_PB14_ETXER | AT91C_PB13_ETX3
 		| AT91C_PB12_ETX2;
+}
+
+/*
+ * Configure interrupt from Ethernet PHY.
+ */
+static inline void AT91_CfgPIO_EMAC_PHY(void) {
+	AT91_SYS->PMC_PCER = 1 << AT91C_ID_PIOC;	/* enable peripheral clock */
+#ifdef CONFIG_MACH_CSB337
+	AT91_SYS->PIOC_ODR = AT91C_PIO_PC2;
+#else
+	AT91_SYS->PIOC_ODR = AT91C_PIO_PC4;
+#endif
 }
 
 /*

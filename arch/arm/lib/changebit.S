@@ -21,6 +21,16 @@ ENTRY(change_bit)
 		save_and_disable_irqs ip, r2
 		ldrb	r2, [r1, r0, lsr #3]
 		eor	r2, r2, r3
+#if defined (CONFIG_ARCH_LOST_WRITES)
+#if defined (CONFIG_CPU_DCACHE_WRITETHROUGH)
+		strb	r2, [r1, r0, lsr #3]	@ Double write
 		strb	r2, [r1, r0, lsr #3]
+#else
+		ldrb	r3, [r1, r0, lsr #3]	@ load before write
+		strb	r2, [r1, r0, lsr #3]
+#endif
+#else
+		strb	r2, [r1, r0, lsr #3]
+#endif
 		restore_irqs ip
 		RETINSTR(mov,pc,lr)

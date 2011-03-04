@@ -399,6 +399,7 @@ static int sd_init_command(Scsi_Cmnd * SCpnt)
 			this_count = 0xffff;
 
 		SCpnt->cmnd[0] += READ_10 - READ_6;
+		SCpnt->cmnd[1] |= 1 << 3; /* Set FUA --rmk */
 		SCpnt->cmnd[2] = (unsigned char) (block >> 24) & 0xff;
 		SCpnt->cmnd[3] = (unsigned char) (block >> 16) & 0xff;
 		SCpnt->cmnd[4] = (unsigned char) (block >> 8) & 0xff;
@@ -524,7 +525,7 @@ static int sd_open(struct inode *inode, struct file *filp)
 	if (SDev->removable)
 		if (SDev->access_count==1)
 			if (scsi_block_when_processing_errors(SDev))
-				scsi_ioctl(SDev, SCSI_IOCTL_DOORLOCK, NULL);
+				scsi_set_medium_removal(SDev, SCSI_REMOVAL_PREVENT);
 
 	
 	return 0;
@@ -553,7 +554,7 @@ static int sd_release(struct inode *inode, struct file *file)
 	if (SDev->removable) {
 		if (!SDev->access_count)
 			if (scsi_block_when_processing_errors(SDev))
-				scsi_ioctl(SDev, SCSI_IOCTL_DOORUNLOCK, NULL);
+				scsi_set_medium_removal(SDev, SCSI_REMOVAL_ALLOW);
 	}
 	if (SDev->host->hostt->module)
 		__MOD_DEC_USE_COUNT(SDev->host->hostt->module);

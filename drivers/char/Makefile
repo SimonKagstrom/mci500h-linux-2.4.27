@@ -29,7 +29,7 @@ export-objs     :=	busmouse.o console.o keyboard.o sysrq.o \
 
 mod-subdirs	:=	joystick ftape drm drm-4.0 pcmcia
 
-list-multi	:=	
+list-multi	:=
 
 KEYMAP   =defkeymap.o
 KEYBD    =pc_keyb.o
@@ -106,11 +106,39 @@ ifeq ($(ARCH),parisc)
 endif
 
 ifeq ($(ARCH),arm)
-  ifneq ($(CONFIG_PC_KEYMAP),y)
-    KEYMAP   =
+  KEYMAP     := defkeymap.o
+  KEYBD      := dummy_keyb.o
+  ifeq ($(CONFIG_PC_KEYMAP),y)
+    KEYMAP   := defkeymap.o
   endif
-  ifneq ($(CONFIG_PC_KEYB),y)
-    KEYBD    =
+  ifeq ($(CONFIG_PC_KEYB),y)
+    KEYBD    += pc_keyb.o
+  endif
+  ifeq ($(CONFIG_KMI_KEYB),y)
+    KEYBD    += amba_kmi_keyb.o
+  endif
+  ifeq ($(CONFIG_SA1111),y)
+    KEYBD    += sa1111_keyb.o
+  endif
+  ifeq ($(CONFIG_ARCH_EDB7211),y)
+    KEYBD    += edb7211_keyb.o
+  endif
+  ifeq ($(CONFIG_ARCH_AUTCPU12),y)
+    KEYMAP   := defkeymap.o
+    KEYBD    += clps711x_keyb.o
+  endif
+  ifeq ($(CONFIG_SA1100_GRAPHICSCLIENT),y)
+    KEYMAP    = gckeymap.o
+    KEYBD    += gc_keyb.o
+  endif
+  ifeq ($(CONFIG_SA1100_CERF_CPLD),y)
+    KEYBD    += cerf_keyb.o
+  endif
+  ifeq ($(CONFIG_ARCH_FORTUNET),y)
+    KEYMAP   := defkeymap.o
+  endif
+  ifeq ($(CONFIG_ARCH_GUIDEA07),y)
+    KEYMAP   := defkeymap.o
   endif
 endif
 
@@ -165,19 +193,13 @@ ifeq ($(CONFIG_QTRONIX_KEYBOARD),y)
   KEYMAP   = qtronixmap.o
 endif
 
-ifeq ($(CONFIG_DUMMY_KEYB),y)
-  KEYBD = dummy_keyb.o
-endif
-
 obj-$(CONFIG_VT) += vt.o vc_screen.o consolemap.o consolemap_deftbl.o $(CONSOLE) selection.o
 obj-$(CONFIG_SERIAL) += $(SERIAL)
 obj-$(CONFIG_PARPORT_SERIAL) += parport_serial.o
 obj-$(CONFIG_SERIAL_HCDP) += hcdp_serial.o
-obj-$(CONFIG_SERIAL_21285) += serial_21285.o
-obj-$(CONFIG_SERIAL_SA1100) += serial_sa1100.o
-obj-$(CONFIG_SERIAL_AMBA) += serial_amba.o
 obj-$(CONFIG_TS_AU1X00_ADS7846) += au1000_ts.o
 obj-$(CONFIG_SERIAL_DEC) += decserial.o
+obj-$(CONFIG_TOUCHSCREEN_ANAKIN) += anakin_ts.o
 
 ifndef CONFIG_SUN_KEYBOARD
   obj-$(CONFIG_VT) += keyboard.o $(KEYMAP) $(KEYBD)
@@ -254,6 +276,8 @@ obj-$(CONFIG_EFI_RTC) += efirtc.o
 obj-$(CONFIG_SGI_DS1286) += ds1286.o
 obj-$(CONFIG_MIPS_RTC) += mips_rtc.o
 obj-$(CONFIG_SGI_IP27_RTC) += ip27-rtc.o
+obj-$(CONFIG_SA1100_RTC) += sa1100-rtc.o
+obj-$(CONFIG_OMAHA_RTC) += omaha-rtc.o
 ifeq ($(CONFIG_PPC),)
   obj-$(CONFIG_NVRAM) += nvram.o
 endif
@@ -292,6 +316,7 @@ obj-$(CONFIG_NWBUTTON) += nwbutton.o
 obj-$(CONFIG_NWFLASH) += nwflash.o
 obj-$(CONFIG_SCx200) += scx200.o
 obj-$(CONFIG_SCx200_GPIO) += scx200_gpio.o
+obj-$(CONFIG_SA1100_CONSUS) += consusbutton.o
 
 # Only one watchdog can succeed. We probe the hardware watchdog
 # drivers first, then the softdog driver.  This means if your hardware
@@ -320,13 +345,27 @@ obj-$(CONFIG_INDYDOG) += indydog.o
 obj-$(CONFIG_SC1200_WDT) += sc1200wdt.o
 obj-$(CONFIG_SCx200_WDT) += scx200_wdt.o
 obj-$(CONFIG_WAFER_WDT) += wafer5823wdt.o
+obj-$(CONFIG_SA1100_WATCHDOG) += sa1100_wdt.o
+obj-$(CONFIG_EPXA_WATCHDOG) += epxa_wdt.o
+obj-$(CONFIG_OMAHA_WATCHDOG) += omaha_wdt.o
 obj-$(CONFIG_SOFT_WATCHDOG) += softdog.o
 obj-$(CONFIG_INDYDOG) += indydog.o
 obj-$(CONFIG_8xx_WDT) += mpc8xx_wdt.o
+obj-$(CONFIG_SSA_XFER) += ssa-xfer.o
+obj-$(CONFIG_MELODY_KEYPAD) += melody_keypad.o
+
+# I2C char devices
+obj-$(CONFIG_I2C_DS1307) += ds1307.o
 
 subdir-$(CONFIG_MWAVE) += mwave
 ifeq ($(CONFIG_MWAVE),y)
   obj-y += mwave/mwave.o
+endif
+
+ifeq ($(CONFIG_ARCH_ACORN),y)
+mod-subdirs	+= ../acorn/char
+subdir-y	+= ../acorn/char
+obj-y		+= ../acorn/char/acorn-char.o
 endif
 
 subdir-$(CONFIG_IPMI_HANDLER) += ipmi

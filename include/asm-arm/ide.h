@@ -13,11 +13,11 @@
 
 #ifdef __KERNEL__
 
+#include <asm/arch/ide.h>
+
 #ifndef MAX_HWIFS
 #define MAX_HWIFS	4
 #endif
-
-#include <asm/arch/ide.h>
 
 /*
  * We always use the new IDE port registering,

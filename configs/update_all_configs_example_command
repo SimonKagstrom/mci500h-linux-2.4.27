@@ -1,0 +1,48 @@
+#!/bin/sh
+
+set -x
+set -e
+
+# for file in config_* ; do perl -pe 's/# CONFIG_SYSCTL is not set/CONFIG_SYSCTL=y/' -i $file; done
+# for file in config_* ; do perl -pe 's/CONFIG_SSA_XFER=y\n//' -i $file; done
+
+PNX0106_CONFIGS="config_default_gh526
+		 config_default_gh526_no_net
+		 config_default_hasli7_wac3k5
+		 config_default_hasli7_wac7k5
+		 config_default_hacli7_was7k5
+		 config_default_hasli7_mci500
+		 config_default_hacli7_mci300
+		 config_default_laguna_reva
+		 config_default_laguna_reva_ata_full
+		 config_default_laguna_reva_pccard
+		 config_default_lpas1
+		 config_default_ldma1
+		 config_default_rss1
+		 config_default_rsc1
+		 config_default_w6_was5k
+		 config_default_w6_wac5k
+		 config_default_w6_was7k
+		 config_default_w6_wac7k
+		 config_default_wma100
+		 config_default_wsa
+		 config_default_wsa_no_ide"
+
+if false
+then
+	for file in $PNX0106_CONFIGS
+	do 
+		[ ! -f "$file" ] && continue
+#		sed -i 's/# CONFIG_SYSVIPC is not set/CONFIG_SYSVIPC=y/' $file
+#		sed -i 's/# CONFIG_HOTPLUG is not set/CONFIG_HOTPLUG=y/' $file
+	done
+fi
+
+for file in $PNX0106_CONFIGS
+do 
+	[ ! -f "$file" ] && continue
+	cp $file ../.config
+	make -C .. oldconfig
+	cp ../.config $file
+done
+

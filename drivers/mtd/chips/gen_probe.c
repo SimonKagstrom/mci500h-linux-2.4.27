@@ -1,14 +1,17 @@
 /*
  * Routines common to all CFI-type probes.
- * (C) 2001, 2001 Red Hat, Inc.
+ * (C) 2001-2003 Red Hat, Inc.
  * GPL'd
- * $Id: gen_probe.c,v 1.9 2002/09/05 05:15:32 acurtis Exp $
+ * $Id: gen_probe.c,v 1.13 2003/06/25 11:50:37 dwmw2 Exp $
  */
 
 #include <linux/kernel.h>
+#include <linux/slab.h>
+#include <linux/module.h>
 #include <linux/mtd/mtd.h>
 #include <linux/mtd/map.h>
 #include <linux/mtd/cfi.h>
+#include <linux/mtd/mtd.h>
 #include <linux/mtd/gen_probe.h>
 
 static struct mtd_info *check_cmd_set(struct map_info *, int);
@@ -57,6 +60,7 @@ struct cfi_private *genprobe_ident_chips(struct map_info *map, struct chip_probe
 	int i;
 
 	memset(&cfi, 0, sizeof(cfi));
+	memset(&chip[0], 0, sizeof(chip));
 
 	/* Call the probetype-specific code with all permutations of 
 	   interleave and device type, etc. */

@@ -40,6 +40,14 @@
 		.macro	writeb,	rb
 		strb	\rb, [r3, #0x3f8 << 2]
 		.endm
+#elif defined(CONFIG_ARCH_RISCSTATION)
+		.macro	loadsp,	rb
+		mov	\rb, #0x03000000
+		orr	\rb, \rb, #0x00010000
+		.endm
+		.macro	writeb,	rb
+		strb	\rb, [r3, #0x3f8 << 2]
+		.endm
 #elif defined(CONFIG_ARCH_INTEGRATOR)
 		.macro	loadsp, rb
 		mov	\rb, #0x16000000
@@ -396,6 +404,20 @@ __arm6_cache_on:
 		mcr	p15, 0, r0, c1, c0, 0	@ load control register
 		mov	pc, r12
 
+__arm7_cache_on:
+		mov	r12, lr
+		bl	__setup_mmu
+		mov	r0, #0
+		mcr	p15, 0, r0, c7, c0, 0	@ invalidate whole cache v3
+		mcr	p15, 0, r0, c5, c0, 0	@ invalidate whole TLB v3
+		mcr	p15, 0, r3, c2, c0, 0	@ load page table pointer
+		mov	r0, #-1
+		mcr	p15, 0, r0, c3, c0, 0	@ load domain access control
+		mov	r0, #0x7d
+		mcr	p15, 0, r0, c1, c0, 0	@ load control register
+		mov	pc, r12
+
+
 /*
  * All code following this line is relocatable.  It is relocated by
  * the above code to the end of the decompressed kernel image and
@@ -480,9 +502,9 @@ proc_types:
 
 		.word	0x41007000		@ ARM7/710
 		.word	0xfff8fe00
+		b	__arm7_cache_on
 		b	__arm7_cache_off
-		b	__arm7_cache_off
-		mov	pc, lr
+		b	__armv3_cache_flush
 
 		.word	0x41807200		@ ARM720T (writethrough)
 		.word	0xffffff00
@@ -490,14 +512,14 @@ proc_types:
 		b	__armv4_cache_off
 		mov	pc, lr
 
-		.word	0x41129200		@ ARM920T
-		.word	0xff00fff0
+		.word	0x41009200		@ ARM920T, ARM922T, ARM926TEJ-S
+		.word	0xff00ff90
 		b	__armv4_cache_on
 		b	__armv4_cache_off
 		b	__armv4_cache_flush
 
-		.word	0x41029220		@ ARM922T
-		.word	0xff00fff0
+		.word	0x4100a200		@ ARM1020T/E, ARM1022E, ARM1026TEJ-S
+		.word	0xff00ff90
 		b	__armv4_cache_on
 		b	__armv4_cache_off
 		b	__armv4_cache_flush

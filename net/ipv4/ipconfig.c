@@ -1290,17 +1290,19 @@ static int __init ip_auto_config(void)
 	/*
 	 * Clue in the operator.
 	 */
-	printk("IP-Config: Complete:");
-	printk("\n      device=%s", ic_dev->name);
-	printk(", addr=%u.%u.%u.%u", NIPQUAD(ic_myaddr));
-	printk(", mask=%u.%u.%u.%u", NIPQUAD(ic_netmask));
-	printk(", gw=%u.%u.%u.%u", NIPQUAD(ic_gateway));
-	printk(",\n     host=%s, domain=%s, nis-domain=%s",
-	       system_utsname.nodename, ic_domain, system_utsname.domainname);
-	printk(",\n     bootserver=%u.%u.%u.%u", NIPQUAD(ic_servaddr));
-	printk(", rootserver=%u.%u.%u.%u", NIPQUAD(root_server_addr));
-	printk(", rootpath=%s", root_server_path);
-	printk("\n");
+
+	printk("IP-Config: Complete:\n");
+	printk("   device=%s\n", ic_dev->name);
+	printk("   addr=%u.%u.%u.%u\n", NIPQUAD(ic_myaddr));
+	printk("   mask=%u.%u.%u.%u\n", NIPQUAD(ic_netmask));
+	printk("   gw=%u.%u.%u.%u\n", NIPQUAD(ic_gateway));
+	printk("   host=%s\n", system_utsname.nodename);
+	printk("   domain=%s\n", ic_domain);
+	printk("   nis-domain=%s\n",system_utsname.domainname);
+	printk("   bootserver=%u.%u.%u.%u\n", NIPQUAD(ic_servaddr));
+	printk("   rootserver=%u.%u.%u.%u\n", NIPQUAD(root_server_addr));
+	printk("   rootpath=%s\n", root_server_path);
+
 #endif /* !SILENT */
 
 	return 0;

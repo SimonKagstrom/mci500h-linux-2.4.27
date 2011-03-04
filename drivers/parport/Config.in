@@ -27,7 +27,8 @@ if [ "$CONFIG_PARPORT" != "n" ]; then
       dep_tristate '    Support for PCMCIA management for PC-style ports' CONFIG_PARPORT_PC_PCMCIA $CONFIG_PCMCIA $CONFIG_PARPORT_PC $CONFIG_HOTPLUG
    fi
    if [ "$CONFIG_ARM" = "y" ]; then
-      dep_tristate '  Archimedes hardware' CONFIG_PARPORT_ARC $CONFIG_PARPORT
+      dep_tristate '  Archimedes hardware' CONFIG_PARPORT_ARC $CONFIG_PARPORT $CONFIG_ARCH_ARC
+      dep_tristate '  Accelent SA1110 IDP' CONFIG_PARPORT_IDP $CONFIG_PARPORT $CONFIG_SA1100_ACCELENT
    fi
    if [ "$CONFIG_AMIGA" = "y" ]; then
       dep_tristate '  Amiga builtin port' CONFIG_PARPORT_AMIGA $CONFIG_PARPORT

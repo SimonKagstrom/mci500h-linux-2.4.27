@@ -257,6 +257,8 @@ struct task_struct *alloc_task_struct(void)
 		tsk = ll_alloc_task_struct();
 
 #ifdef CONFIG_SYSRQ
+#error "CONFIG_SYSRQ seems to be a bug... should be CONFIG_MAGIC_SYSRQ ?!?"
+
 	/*
 	 * The stack must be cleared if you want SYSRQ-T to
 	 * give sensible stack usage information
@@ -266,6 +268,22 @@ struct task_struct *alloc_task_struct(void)
 		memzero(p+KERNEL_STACK_SIZE, KERNEL_STACK_SIZE);
 	}
 #endif
+
+#if 0
+	/* init the entire stack frame (ie from end of task_struct to top of stack... almost 8k bytes) */
+	if (tsk) {
+		char *p = (char *) tsk;
+		memset (p + sizeof(struct task_struct), 0xA5, ((8*1024) - sizeof(struct task_struct)));
+	}
+#else
+	/* init the top 1k of the stack only */
+	if (tsk) {
+		char *p = (char *) tsk;
+		memset (p + (7*1024), 0xA5, (1*1024));
+	}
+#endif
+
+
 	return tsk;
 }
 

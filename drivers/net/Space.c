@@ -101,6 +101,8 @@ extern int macsonic_probe(struct net_device *dev);
 extern int mac8390_probe(struct net_device *dev);
 extern int mac89x0_probe(struct net_device *dev);
 extern int mc32_probe(struct net_device *dev);
+extern int dmfe_bast_probe(struct net_device *dev);
+extern int ne_bast_probe(struct net_device *dev);
   
 /* Detachable devices ("pocket adaptors") */
 extern int de600_probe(struct net_device *);

@@ -21,7 +21,7 @@
    This is access code for flashes using ARM's flash partitioning 
    standards.
 
-   $Id: afs.c,v 1.8 2002/05/04 08:49:09 rmk Exp $
+   $Id: afs.c,v 1.12 2003/06/13 15:31:06 rmk Exp $
 
 ======================================================================*/
 
@@ -76,17 +76,19 @@ afs_read_footer(struct mtd_info *mtd, u_int *img_start, u_int *iis_start,
 		return ret;
 	}
 
+	ret = 1;
+
 	/*
 	 * Does it contain the magic number?
 	 */
 	if (fs.signature != 0xa0ffff9f)
-		ret = 1;
+		ret = 0;
 
 	/*
 	 * Don't touch the SIB.
 	 */
 	if (fs.type == 2)
-		ret = 1;
+		ret = 0;
 
 	*iis_start = fs.image_info_base & mask;
 	*img_start = fs.image_start & mask;
@@ -96,14 +98,14 @@ afs_read_footer(struct mtd_info *mtd, u_int *img_start, u_int *iis_start,
 	 * be located after the footer structure.
 	 */
 	if (*iis_start >= ptr)
-		ret = 1;
+		ret = 0;
 
 	/*
 	 * Check the start of this image.  The image
 	 * data can not be located after this block.
 	 */
 	if (*img_start > off)
-		ret = 1;
+		ret = 0;
 
 	return ret;
 }
@@ -125,7 +127,9 @@ afs_read_iis(struct mtd_info *mtd, struct image_info_struct *iis, u_int ptr)
 	return ret;
 }
 
-int parse_afs_partitions(struct mtd_info *mtd, struct mtd_partition **pparts)
+static int parse_afs_partitions(struct mtd_info *mtd, 
+                         struct mtd_partition **pparts,
+                         unsigned long origin)
 {
 	struct mtd_partition *parts;
 	u_int mask, off, idx, sz;
@@ -150,7 +154,7 @@ int parse_afs_partitions(struct mtd_info *mtd, struct mtd_partition **pparts)
 		ret = afs_read_footer(mtd, &img_ptr, &iis_ptr, off, mask);
 		if (ret < 0)
 			break;
-		if (ret == 1)
+		if (ret == 0)
 			continue;
 
 		ret = afs_read_iis(mtd, &iis, iis_ptr);
@@ -183,7 +187,7 @@ int parse_afs_partitions(struct mtd_info *mtd, struct mtd_partition **pparts)
 		ret = afs_read_footer(mtd, &img_ptr, &iis_ptr, off, mask);
 		if (ret < 0)
 			break;
-		if (ret == 1)
+		if (ret == 0)
 			continue;
 
 		/* Read the image info block */
@@ -227,7 +231,25 @@ int parse_afs_partitions(struct mtd_info *mtd, struct mtd_partition **pparts)
 	return idx ? idx : ret;
 }
 
-EXPORT_SYMBOL(parse_afs_partitions);
+static struct mtd_part_parser afs_parser = {
+	.owner = THIS_MODULE,
+	.parse_fn = parse_afs_partitions,
+	.name = "afs",
+};
+
+static int __init afs_parser_init(void)
+{
+	return register_mtd_parser(&afs_parser);
+}
+
+static void __exit afs_parser_exit(void)
+{
+	deregister_mtd_parser(&afs_parser);
+}
+
+module_init(afs_parser_init);
+module_exit(afs_parser_exit);
+
 
 MODULE_AUTHOR("ARM Ltd");
 MODULE_DESCRIPTION("ARM Firmware Suite partition parser");

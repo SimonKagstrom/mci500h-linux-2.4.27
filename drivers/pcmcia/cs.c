@@ -3,7 +3,7 @@
     Kernel Card Services -- core services
 
     cs.c 1.271 2000/10/02 20:27:49
-    
+
     The contents of this file are subject to the Mozilla Public
     License Version 1.1 (the "License"); you may not use this file
     except in compliance with the License. You may obtain a copy of
@@ -28,7 +28,7 @@
     and other provisions required by the GPL.  If you do not delete
     the provisions above, a recipient may use your version of this
     file under either the MPL or the GPL.
-    
+
 ======================================================================*/
 
 #include <linux/module.h>
@@ -92,7 +92,7 @@ static const char *options = "options: " OPTIONS;
 MODULE_AUTHOR("David Hinds <dahinds@users.sourceforge.net>");
 MODULE_DESCRIPTION("Linux Kernel Card Services " CS_RELEASE
 		   "\n  options:" OPTIONS);
-MODULE_LICENSE("Dual MPL/GPL");	  
+MODULE_LICENSE("Dual MPL/GPL");
 
 #define INT_MODULE_PARM(n, v) static int n = v; MODULE_PARM(n, "i")
 
@@ -123,7 +123,7 @@ INT_MODULE_PARM(pc_debug, PCMCIA_DEBUG);
 static const char *version =
 "cs.c 1.279 2001/10/13 00:08:28 (David Hinds)";
 #endif
- 
+
 /*====================================================================*/
 
 socket_state_t dead_socket = {
@@ -299,7 +299,7 @@ static int proc_read_clients(char *buf, char **start, off_t pos,
 
     Low-level PC Card interface drivers need to register with Card
     Services using these calls.
-    
+
 ======================================================================*/
 
 static int setup_socket(socket_info_t *);
@@ -331,7 +331,7 @@ socket_info_t *pcmcia_register_socket (int slot,
     s->use_bus_pm = use_bus_pm;
     s->erase_busy.next = s->erase_busy.prev = &s->erase_busy;
     spin_lock_init(&s->lock);
-    
+
     for (i = 0; i < sockets; i++)
 	if (socket_table[i] == NULL) break;
     socket_table[i] = s;
@@ -365,7 +365,7 @@ int register_ss_entry(int nsock, struct pccard_operations * ss_entry)
     for (ns = 0; ns < nsock; ns++) {
 	pcmcia_register_socket (ns, ss_entry, 0);
     }
-    
+
     return 0;
 } /* register_ss_entry */
 
@@ -457,7 +457,7 @@ static void cs_sleep(unsigned int n_cs)
 static void shutdown_socket(socket_info_t *s)
 {
     client_t **c;
-    
+
     DEBUG(1, "cs: shutdown_socket(%p)\n", s);
 
     /* Blank out the socket state */
@@ -561,7 +561,7 @@ out:
     have several causes: card insertion, a call to reset_socket, or
     recovery from a suspend/resume cycle.  Unreset_socket() sends
     a CS event that matches the cause of the reset.
-    
+
 ======================================================================*/
 
 static void reset_socket(socket_info_t *s)
@@ -616,7 +616,7 @@ static void unreset_socket(socket_info_t *s)
 	    s->state &= ~SOCKET_SETUP_PENDING;
 	} else {
 	    send_event(s, CS_EVENT_CARD_RESET, CS_EVENT_PRI_LOW);
-	    if (s->reset_handle) { 
+	    if (s->reset_handle) {
 		    s->reset_handle->event_callback_args.info = NULL;
 		    EVENT(s->reset_handle, CS_EVENT_RESET_COMPLETE,
 			  CS_EVENT_PRI_LOW);
@@ -631,7 +631,7 @@ static void unreset_socket(socket_info_t *s)
     valid clients.  Parse_events() interprets the event bits from
     a card status change report.  Do_shutdown() handles the high
     priority stuff associated with a card removal.
-    
+
 ======================================================================*/
 
 static int send_event(socket_info_t *s, event_t event, int priority)
@@ -641,7 +641,7 @@ static int send_event(socket_info_t *s, event_t event, int priority)
     DEBUG(1, "cs: send_event(sock %d, event %d, pri %d)\n",
 	  s->sock, event, priority);
     ret = 0;
-    for (; client; client = client->next) { 
+    for (; client; client = client->next) {
 	if (client->state & (CLIENT_UNBOUND|CLIENT_STALE))
 	    continue;
 	if (client->EventMask & event) {
@@ -675,10 +675,17 @@ static void do_shutdown(socket_info_t *s)
 static void parse_events(void *info, u_int events)
 {
     socket_info_t *s = info;
+
     if (events & SS_DETECT) {
 	int status;
 
 	get_socket_status(s, &status);
+
+	/*
+	 * If our socket state indicates that a card is present and
+	 * either the socket has not been suspended (for some reason)
+	 * or the card has been removed, shut down the socket first.
+	 */
 	if ((s->state & SOCKET_PRESENT) &&
 	    (!(s->state & SOCKET_SUSPEND) ||
 	     !(status & SS_DETECT)))
@@ -716,7 +723,7 @@ static void parse_events(void *info, u_int events)
 
     This does not comply with the latest PC Card spec for handling
     power management events.
-    
+
 ======================================================================*/
 
 void pcmcia_suspend_socket (socket_info_t *s)
@@ -773,7 +780,7 @@ static int handle_pm_event(struct pm_dev *dev, pm_request_t rqst, void *data)
 /*======================================================================
 
     Special stuff for managing IO windows, because they are scarce.
-    
+
 ======================================================================*/
 
 static int alloc_io_space(socket_info_t *s, u_int attr, ioaddr_t *base,
@@ -862,7 +869,7 @@ static void release_io_space(socket_info_t *s, ioaddr_t base,
     Access_configuration_register() reads and writes configuration
     registers in attribute memory.  Memory window 0 is reserved for
     this and the tuple reading services.
-    
+
 ======================================================================*/
 
 int pcmcia_access_configuration_register(client_handle_t handle,
@@ -872,7 +879,7 @@ int pcmcia_access_configuration_register(client_handle_t handle,
     config_t *c;
     int addr;
     u_char val;
-    
+
     if (CHECK_HANDLE(handle))
 	return CS_BAD_HANDLE;
     s = SOCKET(handle);
@@ -890,7 +897,7 @@ int pcmcia_access_configuration_register(client_handle_t handle,
 	return CS_CONFIGURATION_LOCKED;
 
     addr = (c->ConfigBase + reg->Offset) >> 1;
-    
+
     switch (reg->Action) {
     case CS_READ:
 	read_cis_mem(s, 1, addr, 1, &val);
@@ -913,7 +920,7 @@ int pcmcia_access_configuration_register(client_handle_t handle,
     It is normally called by Driver Services after it has identified
     a newly inserted card.  An instance of that driver will then be
     eligible to register as a client of this socket.
-    
+
 ======================================================================*/
 
 int pcmcia_bind_device(bind_req_t *req)
@@ -949,23 +956,23 @@ int pcmcia_bind_device(bind_req_t *req)
     region.  It is normally called by Driver Services after it has
     identified a memory device type.  An instance of the corresponding
     driver will then be able to register to control this region.
-    
+
 ======================================================================*/
 
 int pcmcia_bind_mtd(mtd_bind_t *req)
 {
     socket_info_t *s;
     memory_handle_t region;
-    
+
     if (CHECK_SOCKET(req->Socket))
 	return CS_BAD_SOCKET;
     s = SOCKET(req);
-    
+
     if (req->Attributes & REGION_TYPE_AM)
 	region = s->a_region;
     else
 	region = s->c_region;
-    
+
     while (region) {
 	if (region->info.CardOffset == req->CardOffset) break;
 	region = region->info.next;
@@ -973,7 +980,7 @@ int pcmcia_bind_mtd(mtd_bind_t *req)
     if (!region || (region->mtd != NULL))
 	return CS_BAD_OFFSET;
     strncpy(region->dev_info, (char *)req->dev_info, DEV_NAME_LEN);
-    
+
     DEBUG(1, "cs: bind_mtd(): attr 0x%x, offset 0x%x, dev %s\n",
 	  req->Attributes, req->CardOffset, (char *)req->dev_info);
     return CS_SUCCESS;
@@ -988,7 +995,7 @@ int pcmcia_deregister_client(client_handle_t handle)
     memory_handle_t region;
     u_long flags;
     int i, sn;
-    
+
     DEBUG(1, "cs: deregister_client(%p)\n", handle);
     if (CHECK_HANDLE(handle))
 	return CS_BAD_HANDLE;
@@ -1007,7 +1014,7 @@ int pcmcia_deregister_client(client_handle_t handle)
 	for (region = s->c_region; region; region = region->info.next)
 	    if (region->mtd == handle) region->mtd = NULL;
     }
-    
+
     sn = handle->Socket; s = socket_table[sn];
 
     if ((handle->state & CLIENT_STALE) ||
@@ -1032,7 +1039,7 @@ int pcmcia_deregister_client(client_handle_t handle)
 
     if (--s->real_clients == 0)
         register_callback(s, NULL, NULL);
-    
+
     return CS_SUCCESS;
 } /* deregister_client */
 
@@ -1043,7 +1050,7 @@ int pcmcia_get_configuration_info(client_handle_t handle,
 {
     socket_info_t *s;
     config_t *c;
-    
+
     if (CHECK_HANDLE(handle))
 	return CS_BAD_HANDLE;
     s = SOCKET(handle);
@@ -1055,7 +1062,7 @@ int pcmcia_get_configuration_info(client_handle_t handle,
 	    return CS_BAD_ARGS;
     } else
 	config->Function = handle->Function;
-    
+
 #ifdef CONFIG_CARDBUS
     if (s->state & SOCKET_CARDBUS) {
 	u_char fn = config->Function;
@@ -1076,16 +1083,16 @@ int pcmcia_get_configuration_info(client_handle_t handle,
 	return CS_SUCCESS;
     }
 #endif
-    
+
     c = (s->config != NULL) ? &s->config[config->Function] : NULL;
-    
+
     if ((c == NULL) || !(c->state & CONFIG_LOCKED)) {
 	config->Attributes = 0;
 	config->Vcc = s->socket.Vcc;
 	config->Vpp1 = config->Vpp2 = s->socket.Vpp;
 	return CS_SUCCESS;
     }
-    
+
     /* !!! This is a hack !!! */
     memcpy(&config->Attributes, &c->Attributes, sizeof(config_t));
     config->Attributes |= CONF_VALID_CLIENT;
@@ -1099,14 +1106,14 @@ int pcmcia_get_configuration_info(client_handle_t handle,
     config->NumPorts2 = c->io.NumPorts2;
     config->Attributes2 = c->io.Attributes2;
     config->IOAddrLines = c->io.IOAddrLines;
-    
+
     return CS_SUCCESS;
 } /* get_configuration_info */
 
 /*======================================================================
 
     Return information about this version of Card Services.
-    
+
 ======================================================================*/
 
 int pcmcia_get_card_services_info(servinfo_t *info)
@@ -1124,7 +1131,7 @@ int pcmcia_get_card_services_info(servinfo_t *info)
 
     Note that get_first_client() *does* recognize the Socket field
     in the request structure.
-    
+
 ======================================================================*/
 
 int pcmcia_get_first_client(client_handle_t *handle, client_req_t *req)
@@ -1239,7 +1246,7 @@ EXPORT_SYMBOL(pcmcia_lookup_bus);
 
     Get the current socket state bits.  We don't support the latched
     SocketState yet: I haven't seen any point for it.
-    
+
 ======================================================================*/
 
 int pcmcia_get_status(client_handle_t handle, cs_status_t *status)
@@ -1247,7 +1254,7 @@ int pcmcia_get_status(client_handle_t handle, cs_status_t *status)
     socket_info_t *s;
     config_t *c;
     int val;
-    
+
     if (CHECK_HANDLE(handle))
 	return CS_BAD_HANDLE;
     s = SOCKET(handle);
@@ -1263,7 +1270,7 @@ int pcmcia_get_status(client_handle_t handle, cs_status_t *status)
 	return CS_NO_CARD;
     if (s->state & SOCKET_SETUP_PENDING)
 	status->CardState |= CS_EVENT_CARD_INSERTION;
-    
+
     /* Get info from the PRR, if necessary */
     if (handle->Function == BIND_FN_ALL) {
 	if (status->Function && (status->Function >= s->functions))
@@ -1309,7 +1316,7 @@ int pcmcia_get_status(client_handle_t handle, cs_status_t *status)
 /*======================================================================
 
     Change the card address of an already open memory window.
-    
+
 ======================================================================*/
 
 int pcmcia_get_mem_page(window_handle_t win, memreq_t *req)
@@ -1338,7 +1345,7 @@ int pcmcia_map_mem_page(window_handle_t win, memreq_t *req)
 /*======================================================================
 
     Modify a locked socket configuration
-    
+
 ======================================================================*/
 
 int pcmcia_modify_configuration(client_handle_t handle,
@@ -1346,7 +1353,7 @@ int pcmcia_modify_configuration(client_handle_t handle,
 {
     socket_info_t *s;
     config_t *c;
-    
+
     if (CHECK_HANDLE(handle))
 	return CS_BAD_HANDLE;
     s = SOCKET(handle); c = CONFIG(handle);
@@ -1354,7 +1361,7 @@ int pcmcia_modify_configuration(client_handle_t handle,
 	return CS_NO_CARD;
     if (!(c->state & CONFIG_LOCKED))
 	return CS_CONFIGURATION_LOCKED;
-    
+
     if (mod->Attributes & CONF_IRQ_CHANGE_VALID) {
 	if (mod->Attributes & CONF_ENABLE_IRQ) {
 	    c->Attributes |= CONF_ENABLE_IRQ;
@@ -1406,7 +1413,7 @@ int pcmcia_modify_window(window_handle_t win, modwin_t *req)
 	win->ctl.flags |= MAP_USE_WAIT;
     win->ctl.speed = req->AccessSpeed;
     set_mem_map(win->sock, &win->ctl);
-    
+
     return CS_SUCCESS;
 } /* modify_window */
 
@@ -1416,7 +1423,7 @@ int pcmcia_modify_window(window_handle_t win, modwin_t *req)
     caller with a socket.  The driver must have already been bound
     to a socket with bind_device() -- in fact, bind_device()
     allocates the client structure that will be used.
-    
+
 ======================================================================*/
 
 int pcmcia_register_client(client_handle_t *handle, client_reg_t *req)
@@ -1424,7 +1431,7 @@ int pcmcia_register_client(client_handle_t *handle, client_reg_t *req)
     client_t *client;
     socket_info_t *s;
     socket_t ns;
-    
+
     /* Look for unbound client with matching dev_info */
     client = NULL;
     for (ns = 0; ns < sockets; ns++) {
@@ -1464,7 +1471,7 @@ int pcmcia_register_client(client_handle_t *handle, client_reg_t *req)
 
     if (s->state & SOCKET_CARDBUS)
 	client->state |= CLIENT_CARDBUS;
-    
+
     if ((!(s->state & SOCKET_CARDBUS)) && (s->functions == 0) &&
 	(client->Function != BIND_FN_ALL)) {
 	cistpl_longlink_mfc_t mfc;
@@ -1479,7 +1486,7 @@ int pcmcia_register_client(client_handle_t *handle, client_reg_t *req)
 		return CS_OUT_OF_RESOURCE;
 	memset(s->config, 0, sizeof(config_t) * s->functions);
     }
-    
+
     DEBUG(1, "cs: register_client(): client 0x%p, sock %d, dev %s\n",
 	  client, client->Socket, client->dev_info);
     if (client->EventMask & CS_EVENT_REGISTRATION_COMPLETE)
@@ -1501,13 +1508,13 @@ int pcmcia_release_configuration(client_handle_t handle)
     pccard_io_map io = { 0, 0, 0, 0, 1 };
     socket_info_t *s;
     int i;
-    
+
     if (CHECK_HANDLE(handle) ||
 	!(handle->state & CLIENT_CONFIG_LOCKED))
 	return CS_BAD_HANDLE;
     handle->state &= ~CLIENT_CONFIG_LOCKED;
     s = SOCKET(handle);
-    
+
 #ifdef CONFIG_CARDBUS
     if (handle->state & CLIENT_CARDBUS) {
 	cb_disable(s);
@@ -1515,7 +1522,7 @@ int pcmcia_release_configuration(client_handle_t handle)
 	return CS_SUCCESS;
     }
 #endif
-    
+
     if (!(handle->state & CLIENT_STALE)) {
 	config_t *c = CONFIG(handle);
 	if (--(s->lock_count) == 0) {
@@ -1536,7 +1543,7 @@ int pcmcia_release_configuration(client_handle_t handle)
 	    }
 	c->state &= ~CONFIG_LOCKED;
     }
-    
+
     return CS_SUCCESS;
 } /* release_configuration */
 
@@ -1547,25 +1554,25 @@ int pcmcia_release_configuration(client_handle_t handle)
     the actual socket configuration, so if the client is "stale", we
     don't bother checking the port ranges against the current socket
     values.
-    
+
 ======================================================================*/
 
 int pcmcia_release_io(client_handle_t handle, io_req_t *req)
 {
     socket_info_t *s;
-    
+
     if (CHECK_HANDLE(handle) || !(handle->state & CLIENT_IO_REQ))
 	return CS_BAD_HANDLE;
     handle->state &= ~CLIENT_IO_REQ;
     s = SOCKET(handle);
-    
+
 #ifdef CONFIG_CARDBUS
     if (handle->state & CLIENT_CARDBUS) {
 	cb_release(s);
 	return CS_SUCCESS;
     }
 #endif
-    
+
     if (!(handle->state & CLIENT_STALE)) {
 	config_t *c = CONFIG(handle);
 	if (c->state & CONFIG_LOCKED)
@@ -1581,7 +1588,7 @@ int pcmcia_release_io(client_handle_t handle, io_req_t *req)
     release_io_space(s, req->BasePort1, req->NumPorts1);
     if (req->NumPorts2)
 	release_io_space(s, req->BasePort2, req->NumPorts2);
-    
+
     return CS_SUCCESS;
 } /* release_io */
 
@@ -1594,7 +1601,7 @@ int pcmcia_release_irq(client_handle_t handle, irq_req_t *req)
 	return CS_BAD_HANDLE;
     handle->state &= ~CLIENT_IRQ_REQ;
     s = SOCKET(handle);
-    
+
     if (!(handle->state & CLIENT_STALE)) {
 	config_t *c = CONFIG(handle);
 	if (c->state & CONFIG_LOCKED)
@@ -1608,16 +1615,16 @@ int pcmcia_release_irq(client_handle_t handle, irq_req_t *req)
 	    s->irq.AssignedIRQ = 0;
 	}
     }
-    
+
     if (req->Attributes & IRQ_HANDLE_PRESENT) {
 	bus_free_irq(s->cap.bus, req->AssignedIRQ, req->Instance);
     }
 
-#ifdef CONFIG_ISA
+#ifdef CONFIG_PCMCIA_PROBE
     if (req->AssignedIRQ != s->cap.pci_irq)
 	undo_irq(req->Attributes, req->AssignedIRQ);
 #endif
-    
+
     return CS_SUCCESS;
 } /* cs_release_irq */
 
@@ -1626,7 +1633,7 @@ int pcmcia_release_irq(client_handle_t handle, irq_req_t *req)
 int pcmcia_release_window(window_handle_t win)
 {
     socket_info_t *s;
-    
+
     if ((win == NULL) || (win->magic != WINDOW_MAGIC))
 	return CS_BAD_HANDLE;
     s = win->sock;
@@ -1640,11 +1647,11 @@ int pcmcia_release_window(window_handle_t win)
 
     /* Release system memory */
     if(!(s->cap.features & SS_CAP_STATIC_MAP))
-	release_mem_region(win->base, win->size);
+	release_mem_resource(win->base, win->size);
     win->handle->state &= ~CLIENT_WIN_REQ(win->index);
 
     win->magic = 0;
-    
+
     return CS_SUCCESS;
 } /* release_window */
 
@@ -1658,13 +1665,13 @@ int pcmcia_request_configuration(client_handle_t handle,
     socket_info_t *s;
     config_t *c;
     pccard_io_map iomap;
-    
+
     if (CHECK_HANDLE(handle))
 	return CS_BAD_HANDLE;
     i = handle->Socket; s = socket_table[i];
     if (!(s->state & SOCKET_PRESENT))
 	return CS_NO_CARD;
-    
+
 #ifdef CONFIG_CARDBUS
     if (handle->state & CLIENT_CARDBUS) {
 	if (!(req->IntType & INT_CARDBUS))
@@ -1677,7 +1684,7 @@ int pcmcia_request_configuration(client_handle_t handle,
 	return CS_SUCCESS;
     }
 #endif
-    
+
     if (req->IntType & INT_CARDBUS)
 	return CS_UNSUPPORTED_MODE;
     c = CONFIG(handle);
@@ -1692,9 +1699,9 @@ int pcmcia_request_configuration(client_handle_t handle,
     s->socket.Vpp = req->Vpp1;
     if (set_socket(s, &s->socket))
 	return CS_BAD_VPP;
-    
+
     c->Vcc = req->Vcc; c->Vpp1 = c->Vpp2 = req->Vpp1;
-    
+
     /* Pick memory or I/O card, DMA mode, interrupt */
     c->IntType = req->IntType;
     c->Attributes = req->Attributes;
@@ -1712,7 +1719,7 @@ int pcmcia_request_configuration(client_handle_t handle,
 	s->socket.io_irq = 0;
     set_socket(s, &s->socket);
     s->lock_count++;
-    
+
     /* Set up CIS configuration registers */
     base = c->ConfigBase = req->ConfigBase;
     c->Present = c->CardValues = req->Present;
@@ -1757,7 +1764,7 @@ int pcmcia_request_configuration(client_handle_t handle,
 	u_char b = c->io.NumPorts1 + c->io.NumPorts2 - 1;
 	write_cis_mem(s, 1, (base + CISREG_IOSIZE)>>1, 1, &b);
     }
-    
+
     /* Configure I/O windows */
     if (c->state & CONFIG_IO_REQ) {
 	iomap.speed = io_speed;
@@ -1779,24 +1786,24 @@ int pcmcia_request_configuration(client_handle_t handle,
 		s->io[i].Config++;
 	    }
     }
-    
+
     c->state |= CONFIG_LOCKED;
     handle->state |= CLIENT_CONFIG_LOCKED;
     return CS_SUCCESS;
 } /* request_configuration */
 
 /*======================================================================
-  
+
     Request_io() reserves ranges of port addresses for a socket.
     I have not implemented range sharing or alias addressing.
-    
+
 ======================================================================*/
 
 int pcmcia_request_io(client_handle_t handle, io_req_t *req)
 {
     socket_info_t *s;
     config_t *c;
-    
+
     if (CHECK_HANDLE(handle))
 	return CS_BAD_HANDLE;
     s = SOCKET(handle);
@@ -1855,7 +1862,7 @@ int pcmcia_request_io(client_handle_t handle, io_req_t *req)
     hooked, we don't guarantee that an irq will still be available
     when the configuration is locked.  Now that I think about it,
     there might be a way to fix this using a dummy handler.
-    
+
 ======================================================================*/
 
 int pcmcia_request_irq(client_handle_t handle, irq_req_t *req)
@@ -1863,7 +1870,7 @@ int pcmcia_request_irq(client_handle_t handle, irq_req_t *req)
     socket_info_t *s;
     config_t *c;
     int ret = CS_IN_USE, irq = 0;
-    
+
     if (CHECK_HANDLE(handle))
 	return CS_BAD_HANDLE;
     s = SOCKET(handle);
@@ -1875,7 +1882,7 @@ int pcmcia_request_irq(client_handle_t handle, irq_req_t *req)
     if (c->state & CONFIG_IRQ_REQ)
 	return CS_IN_USE;
 
-#ifdef CONFIG_ISA
+#ifdef CONFIG_PCMCIA_PROBE
     if (s->irq.AssignedIRQ != 0) {
 	/* If the interrupt is already assigned, it must match */
 	irq = s->irq.AssignedIRQ;
@@ -1909,7 +1916,7 @@ int pcmcia_request_irq(client_handle_t handle, irq_req_t *req)
 
     if (req->Attributes & IRQ_HANDLE_PRESENT) {
 	if (bus_request_irq(s->cap.bus, irq, req->Handler,
-			    ((req->Attributes & IRQ_TYPE_DYNAMIC_SHARING) || 
+			    ((req->Attributes & IRQ_TYPE_DYNAMIC_SHARING) ||
 			     (s->functions > 1) ||
 			     (irq == s->cap.pci_irq)) ? SA_SHIRQ : 0,
 			    handle->dev_info, req->Instance))
@@ -1919,7 +1926,7 @@ int pcmcia_request_irq(client_handle_t handle, irq_req_t *req)
     c->irq.Attributes = req->Attributes;
     s->irq.AssignedIRQ = req->AssignedIRQ = irq;
     s->irq.Config++;
-    
+
     c->state |= CONFIG_IRQ_REQ;
     handle->state |= CLIENT_IRQ_REQ;
     return CS_SUCCESS;
@@ -1938,7 +1945,7 @@ int pcmcia_request_window(client_handle_t *handle, win_req_t *req, window_handle
     window_t *win;
     u_long align;
     int w;
-    
+
     if (CHECK_HANDLE(*handle))
 	return CS_BAD_HANDLE;
     s = SOCKET(*handle);
@@ -2005,7 +2012,7 @@ int pcmcia_request_window(client_handle_t *handle, win_req_t *req, window_handle
     /* Return window handle */
     req->Base = win->ctl.sys_start;
     *wh = win;
-    
+
     return CS_SUCCESS;
 } /* request_window */
 
@@ -2014,14 +2021,14 @@ int pcmcia_request_window(client_handle_t *handle, win_req_t *req, window_handle
     I'm not sure which "reset" function this is supposed to use,
     but for now, it uses the low-level interface's reset, not the
     CIS register.
-    
+
 ======================================================================*/
 
 int pcmcia_reset_card(client_handle_t handle, client_req_t *req)
 {
     int i, ret;
     socket_info_t *s;
-    
+
     if (CHECK_HANDLE(handle))
 	return CS_BAD_HANDLE;
     i = handle->Socket; s = socket_table[i];
@@ -2049,14 +2056,14 @@ int pcmcia_reset_card(client_handle_t handle, client_req_t *req)
 
     These shut down or wake up a socket.  They are sort of user
     initiated versions of the APM suspend and resume actions.
-    
+
 ======================================================================*/
 
 int pcmcia_suspend_card(client_handle_t handle, client_req_t *req)
 {
     int i;
     socket_info_t *s;
-    
+
     if (CHECK_HANDLE(handle))
 	return CS_BAD_HANDLE;
     i = handle->Socket; s = socket_table[i];
@@ -2077,7 +2084,7 @@ int pcmcia_resume_card(client_handle_t handle, client_req_t *req)
 {
     int i;
     socket_info_t *s;
-    
+
     if (CHECK_HANDLE(handle))
 	return CS_BAD_HANDLE;
     i = handle->Socket; s = socket_table[i];
@@ -2095,7 +2102,7 @@ int pcmcia_resume_card(client_handle_t handle, client_req_t *req)
 /*======================================================================
 
     These handle user requests to eject or insert a card.
-    
+
 ======================================================================*/
 
 int pcmcia_eject_card(client_handle_t handle, client_req_t *req)
@@ -2103,7 +2110,7 @@ int pcmcia_eject_card(client_handle_t handle, client_req_t *req)
     int i, ret;
     socket_info_t *s;
     u_long flags;
-    
+
     if (CHECK_HANDLE(handle))
 	return CS_BAD_HANDLE;
     i = handle->Socket; s = socket_table[i];
@@ -2119,9 +2126,9 @@ int pcmcia_eject_card(client_handle_t handle, client_req_t *req)
     spin_lock_irqsave(&s->lock, flags);
     do_shutdown(s);
     spin_unlock_irqrestore(&s->lock, flags);
-    
+
     return CS_SUCCESS;
-    
+
 } /* eject_card */
 
 int pcmcia_insert_card(client_handle_t handle, client_req_t *req)
@@ -2129,7 +2136,7 @@ int pcmcia_insert_card(client_handle_t handle, client_req_t *req)
     int i, status;
     socket_info_t *s;
     u_long flags;
-    
+
     if (CHECK_HANDLE(handle))
 	return CS_BAD_HANDLE;
     i = handle->Socket; s = socket_table[i];
@@ -2157,7 +2164,7 @@ int pcmcia_insert_card(client_handle_t handle, client_req_t *req)
 
     Maybe this should send a CS_EVENT_CARD_INSERTION event if we
     haven't sent one to this client yet?
-    
+
 ======================================================================*/
 
 int pcmcia_set_event_mask(client_handle_t handle, eventmask_t *mask)
@@ -2189,7 +2196,7 @@ int pcmcia_report_error(client_handle_t handle, error_info_t *err)
 	printk(KERN_NOTICE);
     else
 	printk(KERN_NOTICE "%s: ", handle->dev_info);
-    
+
     for (i = 0; i < SERVICE_COUNT; i++)
 	if (service_table[i].key == err->func) break;
     if (i < SERVICE_COUNT)
@@ -2347,13 +2354,13 @@ int CardServices(int func, void *a1, void *a2, void *a3)
     default:
 	return CS_UNSUPPORTED_FUNCTION; break;
     }
-    
+
 } /* CardServices */
 
 /*======================================================================
 
     OS-specific module glue goes here
-    
+
 ======================================================================*/
 /* in alpha order */
 EXPORT_SYMBOL(pcmcia_access_configuration_register);
@@ -2450,4 +2457,3 @@ module_init(init_pcmcia_cs);
 module_exit(exit_pcmcia_cs);
 
 /*====================================================================*/
-

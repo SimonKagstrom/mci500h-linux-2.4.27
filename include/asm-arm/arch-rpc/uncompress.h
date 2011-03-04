@@ -11,28 +11,11 @@
  
 #include <asm/hardware.h>
 #include <asm/io.h>
+#include <asm/setup.h>
 
 int video_num_columns, video_num_lines, video_size_row;
 int white, bytes_per_char_h;
 extern unsigned long con_charconvtable[256];
-
-struct param_struct {
-	unsigned long page_size;
-	unsigned long nr_pages;
-	unsigned long ramdisk_size;
-	unsigned long mountrootrdonly;
-	unsigned long rootdev;
-	unsigned long video_num_cols;
-	unsigned long video_num_rows;
-	unsigned long video_x;
-	unsigned long video_y;
-	unsigned long memc_control_reg;
-	unsigned char sounddefault;
-	unsigned char adfsdrives;
-	unsigned char bytes_per_char_h;
-	unsigned char bytes_per_char_v;
-	unsigned long unused[256/4-11];
-};
 
 static const unsigned long palette_4[16] = {
 	0x00000000,
@@ -69,8 +52,12 @@ static void puts(const char *s)
 	unsigned char c;
 	char *ptr;
 
-	x = params->video_x;
-	y = params->video_y;
+	/* Don't bother when using a tagged list */
+	if (((struct tag *)params)->hdr.tag == ATAG_CORE)
+		return;
+
+	x = params->u1.s.video_x;
+	y = params->u1.s.video_y;
 
 	while ( ( c = *(unsigned char *)s++ ) != '\0' ) {
 		if ( c == '\n' ) {
@@ -79,7 +66,7 @@ static void puts(const char *s)
 				y--;
 			}
 		} else {
-			ptr = VIDMEM + ((y*video_num_columns*params->bytes_per_char_v+x)*bytes_per_char_h);
+			ptr = VIDMEM + ((y*video_num_columns*params->u1.s.bytes_per_char_v+x)*bytes_per_char_h);
 			ll_write_char(ptr, c, white);
 			if ( ++x >= video_num_columns ) {
 				x = 0;
@@ -90,8 +77,6 @@ static void puts(const char *s)
 		}
 	}
 
-	params->video_x = x;
-	params->video_y = y;
 }
 
 static void error(char *x);
@@ -103,9 +88,13 @@ static void arch_decomp_setup(void)
 {
 	int i;
 	
-	video_num_lines = params->video_num_rows;
-	video_num_columns = params->video_num_cols;
-	bytes_per_char_h = params->bytes_per_char_h;
+	/* Don't bother when using a tagged list */
+	if (((struct tag *)params)->hdr.tag == ATAG_CORE)
+		return;
+
+	video_num_lines = params->u1.s.video_num_rows;
+	video_num_columns = params->u1.s.video_num_cols;
+	bytes_per_char_h = params->u1.s.bytes_per_char_h;
 	video_size_row = video_num_columns * bytes_per_char_h;
 	if (bytes_per_char_h == 4)
 		for (i = 0; i < 256; i++)
@@ -140,7 +129,7 @@ static void arch_decomp_setup(void)
 		white = 7;
 	}
 
-	if (params->nr_pages * params->page_size < 4096*1024) error("<4M of mem\n");
+	if (params->u1.s.nr_pages * params->u1.s.page_size < 4096*1024) error("<4M of mem\n");
 }
 #endif
 

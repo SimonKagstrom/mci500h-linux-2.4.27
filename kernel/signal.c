@@ -31,7 +31,12 @@
 static kmem_cache_t *sigqueue_cachep;
 
 atomic_t nr_queued_signals;
+
+#if defined (CONFIG_ARCH_PNX0106)
+int max_queued_signals = 2048;
+#else
 int max_queued_signals = 1024;
+#endif
 
 void __init signals_init(void)
 {
@@ -431,6 +436,7 @@ static void handle_stop_signal(int sig, struct task_struct *t)
 static int send_signal(int sig, struct siginfo *info, struct sigpending *signals)
 {
 	struct sigqueue * q = NULL;
+	int result = 0;
 
 	/* Real-time signals must be queued if sent by sigqueue, or
 	   some other real-time mechanism.  It is implementation
@@ -440,9 +446,18 @@ static int send_signal(int sig, struct siginfo *info, struct sigpending *signals
 	   make sure at least one signal gets delivered and don't
 	   pass on the info struct.  */
 
+#if defined (CONFIG_ARCH_PNX0106)
+#if (__GNUC__ != 3) || (__GNUC_MINOR__ != 3) /* || (__GNUC_PATCHLEVEL__ != 6) */
+#error "stack padding hack is fragile... needs checking with each new compiler version (or C code change within this function...)"
+#endif
+	__asm__ __volatile__("sub sp, sp, #128\n" : : );
+#endif
+
 	if (atomic_read(&nr_queued_signals) < max_queued_signals) {
 		q = kmem_cache_alloc(sigqueue_cachep, GFP_ATOMIC);
 	}
+	else
+		printk ("nr_queued_signals >= max_queued_signals\n");
 
 	if (q) {
 		atomic_inc(&nr_queued_signals);
@@ -474,11 +489,17 @@ static int send_signal(int sig, struct siginfo *info, struct sigpending *signals
 		 * Queue overflow, abort.  We may abort if the signal was rt
 		 * and sent by user using something other than kill().
 		 */
-		return -EAGAIN;
+		result = -EAGAIN;
+		goto out;
 	}
 
 	sigaddset(&signals->signal, sig);
-	return 0;
+out:
+#if defined (CONFIG_ARCH_PNX0106)
+	__asm__ __volatile__("add sp, sp, #128\n" : : );
+#endif
+
+	return result;
 }
 
 /*
@@ -519,6 +540,25 @@ static inline void signal_wake_up(struct task_struct *t)
 	}
 }
 
+#if defined (CONFIG_ARCH_PNX0106)
+static int deliver_signal(int sig, struct siginfo *info, struct task_struct *t)
+{
+	int retval;
+	
+	__asm__ __volatile__("sub sp, sp, #128\n" : : );
+	
+	retval = send_signal(sig, info, &t->pending);
+
+	__asm__ __volatile__("sub sp, sp, #128\n" : : );
+
+	if (!retval && !sigismember(&t->blocked, sig))
+		signal_wake_up(t);
+
+	__asm__ __volatile__("add sp, sp, #256\n" : : );
+
+	return retval;
+}
+#else
 static int deliver_signal(int sig, struct siginfo *info, struct task_struct *t)
 {
 	int retval = send_signal(sig, info, &t->pending);
@@ -528,6 +568,7 @@ static int deliver_signal(int sig, struct siginfo *info, struct task_struct *t)
 
 	return retval;
 }
+#endif
 
 int
 send_sig_info(int sig, struct siginfo *info, struct task_struct *t)
@@ -778,8 +819,8 @@ void do_notify_parent(struct task_struct *tsk, int sig)
 	info.si_uid = tsk->uid;
 
 	/* FIXME: find out whether or not this is supposed to be c*time. */
-	info.si_utime = tsk->times.tms_utime;
-	info.si_stime = tsk->times.tms_stime;
+	info.si_utime = hz_to_std(tsk->times.tms_utime);
+	info.si_stime = hz_to_std(tsk->times.tms_stime);
 
 	status = tsk->exit_code & 0x7f;
 	why = SI_KERNEL;	/* shouldn't happen */
@@ -1277,7 +1318,7 @@ out:
 #endif /* __sparc__ */
 #endif
 
-#if !defined(__alpha__) && !defined(__ia64__)
+#if !defined(__alpha__) && !defined(__ia64__) && !defined(__arm__)
 /*
  * For backwards compatibility.  Functionality superseded by sigprocmask.
  */
@@ -1305,7 +1346,8 @@ sys_ssetmask(int newmask)
 }
 #endif /* !defined(__alpha__) */
 
-#if !defined(__alpha__) && !defined(__ia64__) && !defined(__mips__)
+#if !defined(__alpha__) && !defined(__ia64__) && !defined(__mips__) && \
+    !defined(__arm__)
 /*
  * For backwards compatibility.  Functionality superseded by sigaction.
  */
@@ -1322,4 +1364,4 @@ sys_signal(int sig, __sighandler_t handler)
 
 	return ret ? ret : (unsigned long)old_sa.sa.sa_handler;
 }
-#endif /* !alpha && !__ia64__ && !defined(__mips__) */
+#endif /* !alpha && !__ia64__ && !defined(__mips__) && !defined(__arm__) */

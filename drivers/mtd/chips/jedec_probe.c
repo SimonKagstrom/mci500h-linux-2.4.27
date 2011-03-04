@@ -1,9 +1,11 @@
 /* 
    Common Flash Interface probe code.
    (C) 2000 Red Hat. GPL'd.
-   $Id: jedec_probe.c,v 1.19 2002/11/12 13:12:10 dwmw2 Exp $
+   $Id: jedec_probe.c,v 1.37 2003/10/23 23:06:57 thayne Exp $
    See JEDEC (http://www.jedec.org/) standard JESD21C (section 3.5)
    for the standard this probe goes back to.
+
+   Occasionally maintained by Thayne Harbaugh tharbaugh at lnxi dot com
 */
 
 #include <linux/config.h>
@@ -15,7 +17,9 @@
 #include <linux/errno.h>
 #include <linux/slab.h>
 #include <linux/interrupt.h>
+#include <linux/init.h>
 
+#include <linux/mtd/mtd.h>
 #include <linux/mtd/map.h>
 #include <linux/mtd/cfi.h>
 #include <linux/mtd/gen_probe.h>
@@ -26,9 +30,11 @@
 #define MANUFACTURER_FUJITSU	0x0004
 #define MANUFACTURER_INTEL	0x0089
 #define MANUFACTURER_MACRONIX	0x00C2
-#define MANUFACTURER_ST		0x0020
+#define MANUFACTURER_PMC	0x009D
 #define MANUFACTURER_SST	0x00BF
+#define MANUFACTURER_ST		0x0020
 #define MANUFACTURER_TOSHIBA	0x0098
+#define MANUFACTURER_WINBOND	0x00da
 
 
 /* AMD */
@@ -38,8 +44,9 @@
 #define AM29LV800BT	0x22DA
 #define AM29LV160DT	0x22C4
 #define AM29LV160DB	0x2249
+#define AM29LV320DT	0x22F6
 #define AM29F017D	0x003D
-#define AM29F016	0x00AD
+#define AM29F016D	0x00AD
 #define AM29F080	0x00D5
 #define AM29F040	0x00A4
 #define AM29LV040B	0x004F
@@ -61,6 +68,9 @@
 #define MBM29LV160BE	0x2249
 #define MBM29LV800BA	0x225B
 #define MBM29LV800TA	0x22DA
+#define MBM29LV400TC	0x22B9
+#define MBM29LV400BC	0x22BA
+
 
 /* Intel */
 #define I28F004B3T	0x00d4
@@ -93,10 +103,18 @@
 #define MX29F004T	0x0045
 #define MX29F004B	0x0046
 
+/* PMC */
+#define PM49FL002	0x006D
+#define PM49FL004	0x006E
+#define PM49FL008	0x006A
+
 /* ST - www.st.com */
-#define M29W800T	0x00D7
+#define M29W800DT	0x00D7
+#define M29W800DB	0x005B
 #define M29W160DT	0x22C4
 #define M29W160DB	0x2249
+#define M29W320DT	0x22CA
+#define M29W320DB	0x22CA
 #define M29W040B	0x00E3
 
 /* SST */
@@ -110,6 +128,7 @@
 #define SST39LF040	0x00D7
 #define SST39SF010A	0x00B5
 #define SST39SF020A	0x00B6
+#define SST49LF004B	0x0060
 #define SST49LF030A	0x001C
 #define SST49LF040A	0x0051
 #define SST49LF080A	0x005B
@@ -122,15 +141,86 @@
 #define TC58FVT641	0x0093
 #define TC58FVB641	0x0095
 
+/* Winbond */
+#define W49V002A	0x00b0
+
+/*
+ * Unlock address sets for AMD command sets.
+ * Intel command sets use the MTD_UADDR_UNNECESSARY.
+ * Each identifier, except MTD_UADDR_UNNECESSARY, and
+ * MTD_UADDR_NO_SUPPORT must be defined below in unlock_addrs[].
+ * MTD_UADDR_NOT_SUPPORTED must be 0 so that structure
+ * initialization need not require initializing all of the
+ * unlock addresses for all bit widths.
+ */
+enum uaddr {
+	MTD_UADDR_NOT_SUPPORTED = 0,	/* data width not supported */
+	MTD_UADDR_0x0555_0x02AA,
+	MTD_UADDR_0x0555_0x0AAA,
+	MTD_UADDR_0x5555_0x2AAA,
+	MTD_UADDR_0x0AAA_0x0555,
+	MTD_UADDR_DONT_CARE,		/* Requires an arbitrary address */
+	MTD_UADDR_UNNECESSARY,		/* Does not require any address */
+};
+
+
+struct unlock_addr {
+	int addr1;
+	int addr2;
+};
+
+
+/*
+ * I don't like the fact that the first entry in unlock_addrs[]
+ * exists, but is for MTD_UADDR_NOT_SUPPORTED - and, therefore,
+ * should not be used.  The  problem is that structures with
+ * initializers have extra fields initialized to 0.  It is _very_
+ * desireable to have the unlock address entries for unsupported
+ * data widths automatically initialized - that means that
+ * MTD_UADDR_NOT_SUPPORTED must be 0 and the first entry here
+ * must go unused.
+ */
+static const struct unlock_addr  unlock_addrs[] = {
+	[MTD_UADDR_NOT_SUPPORTED] = {
+		.addr1 = 0xffff,
+		.addr2 = 0xffff
+	},
+
+	[MTD_UADDR_0x0555_0x02AA] = {
+		.addr1 = 0x0555,
+		.addr2 = 0x02aa
+	},
+
+	[MTD_UADDR_0x0555_0x0AAA] = {
+		.addr1 = 0x0555,
+		.addr2 = 0x0aaa
+	},
+
+	[MTD_UADDR_0x5555_0x2AAA] = {
+		.addr1 = 0x5555,
+		.addr2 = 0x2aaa
+	},
+
+	[MTD_UADDR_0x0AAA_0x0555] = {
+		.addr1 = 0x0AAA,
+		.addr2 = 0x0555
+	},
+
+	[MTD_UADDR_DONT_CARE] = {
+		.addr1 = 0x0000,      /* Doesn't matter which address */
+		.addr2 = 0x0000       /* is used - must be last entry */
+	}
+};
+
 
 struct amd_flash_info {
 	const __u16 mfr_id;
 	const __u16 dev_id;
 	const char *name;
 	const int DevSize;
-	const int InterfaceDesc;
 	const int NumEraseRegions;
 	const int CmdSet;
+	const __u8 uaddr[4];		/* unlock addrs for 8, 16, 32, 64 */
 	const ulong regions[4];
 };
 
@@ -145,760 +235,1199 @@ struct amd_flash_info {
 #define SIZE_4MiB   22
 #define SIZE_8MiB   23
 
+
+/*
+ * Please keep this list ordered by manufacturer!
+ * Fortunately, the list isn't searched often and so a
+ * slow, linear search isn't so bad.
+ */
 static const struct amd_flash_info jedec_table[] = {
 	{
-		mfr_id: MANUFACTURER_AMD,
-		dev_id: AM29F032B,
-		name: "AMD AM29F032B",
-		DevSize: SIZE_4MiB,
-		CmdSet:	P_ID_AMD_STD,
-		NumEraseRegions: 1,
-		regions: {ERASEINFO(0x10000,64)
+		.mfr_id		= MANUFACTURER_AMD,
+		.dev_id		= AM29LV320DT,
+		.name		= "AMD AM29LV320DT",
+		.uaddr		= {
+			[0] = MTD_UADDR_0x0AAA_0x0555,  /* x8 */
+			[1] = MTD_UADDR_0x0555_0x02AA,  /* x16 */
+		},
+		.DevSize	= SIZE_4MiB,
+		.CmdSet		= P_ID_AMD_STD,
+		.NumEraseRegions= 2,
+		.regions	= {
+			ERASEINFO(0x10000,63),
+			ERASEINFO(0x02000,8)
 		}
 	}, {
-		mfr_id: MANUFACTURER_AMD,
-		dev_id: AM29LV160DT,
-		name: "AMD AM29LV160DT",
-		DevSize: SIZE_2MiB,
-		CmdSet:	P_ID_AMD_STD,
-		NumEraseRegions: 4,
-		regions: {ERASEINFO(0x10000,31),
-			  ERASEINFO(0x08000,1),
-			  ERASEINFO(0x02000,2),
-			  ERASEINFO(0x04000,1)
+		.mfr_id		= MANUFACTURER_AMD,
+		.dev_id		= AM29F032B,
+		.name		= "AMD AM29F032B",
+		.uaddr		= {
+			[0] = MTD_UADDR_0x0555_0x02AA /* x8 */
+		},
+		.DevSize	= SIZE_4MiB,
+		.CmdSet		= P_ID_AMD_STD,
+		.NumEraseRegions= 1,
+		.regions	= {
+			ERASEINFO(0x10000,64)
 		}
 	}, {
-		mfr_id: MANUFACTURER_AMD,
-		dev_id: AM29LV160DB,
-		name: "AMD AM29LV160DB",
-		DevSize: SIZE_2MiB,
-		CmdSet:	P_ID_AMD_STD,
-		NumEraseRegions: 4,
-		regions: {ERASEINFO(0x04000,1),
-			  ERASEINFO(0x02000,2),
-			  ERASEINFO(0x08000,1),
-			  ERASEINFO(0x10000,31)
+		.mfr_id		= MANUFACTURER_AMD,
+		.dev_id		= AM29LV160DT,
+		.name		= "AMD AM29LV160DT",
+		.uaddr		= {
+			[0] = MTD_UADDR_0x0AAA_0x0555,  /* x8 */
+			[1] = MTD_UADDR_0x0555_0x02AA   /* x16 */
+		},
+		.DevSize	= SIZE_2MiB,
+		.CmdSet		= P_ID_AMD_STD,
+		.NumEraseRegions= 4,
+		.regions	= {
+			ERASEINFO(0x10000,31),
+			ERASEINFO(0x08000,1),
+			ERASEINFO(0x02000,2),
+			ERASEINFO(0x04000,1)
 		}
 	}, {
-		mfr_id: MANUFACTURER_TOSHIBA,
-		dev_id: TC58FVT160,
-		name: "Toshiba TC58FVT160",
-		DevSize: SIZE_2MiB,
-		CmdSet:	P_ID_AMD_STD,
-		NumEraseRegions: 4,
-		regions: {ERASEINFO(0x10000,31),
-			  ERASEINFO(0x08000,1),
-			  ERASEINFO(0x02000,2),
-			  ERASEINFO(0x04000,1)
+		.mfr_id		= MANUFACTURER_AMD,
+		.dev_id		= AM29LV160DB,
+		.name		= "AMD AM29LV160DB",
+		.uaddr		= {
+			[0] = MTD_UADDR_0x0AAA_0x0555,  /* x8 */
+			[1] = MTD_UADDR_0x0555_0x02AA   /* x16 */
+		},
+		.DevSize	= SIZE_2MiB,
+		.CmdSet		= P_ID_AMD_STD,
+		.NumEraseRegions= 4,
+		.regions	= {
+			ERASEINFO(0x04000,1),
+			ERASEINFO(0x02000,2),
+			ERASEINFO(0x08000,1),
+			ERASEINFO(0x10000,31)
 		}
 	}, {
-		mfr_id: MANUFACTURER_TOSHIBA,
-		dev_id: TC58FVB160,
-		name: "Toshiba TC58FVB160",
-		DevSize: SIZE_2MiB,
-		CmdSet:	P_ID_AMD_STD,
-		NumEraseRegions: 4,
-		regions: {ERASEINFO(0x04000,1),
-			  ERASEINFO(0x02000,2),
-			  ERASEINFO(0x08000,1),
-			  ERASEINFO(0x10000,31)
+		.mfr_id		= MANUFACTURER_AMD,
+		.dev_id		= AM29LV800BB,
+		.name		= "AMD AM29LV800BB",
+		.uaddr		= {
+			[0] = MTD_UADDR_0x0AAA_0x0555,  /* x8 */
+			[1] = MTD_UADDR_0x0555_0x02AA,  /* x16 */
+		},
+		.DevSize	= SIZE_1MiB,
+		.CmdSet		= P_ID_AMD_STD,
+		.NumEraseRegions= 4,
+		.regions	= {
+			ERASEINFO(0x04000,1),
+			ERASEINFO(0x02000,2),
+			ERASEINFO(0x08000,1),
+			ERASEINFO(0x10000,15),
 		}
 	}, {
-		mfr_id: MANUFACTURER_TOSHIBA,
-		dev_id: TC58FVB321,
-		name: "Toshiba TC58FVB321",
-		DevSize: SIZE_4MiB,
-		CmdSet:	P_ID_AMD_STD,
-		NumEraseRegions: 2,
-		regions: {ERASEINFO(0x02000,8),
-			  ERASEINFO(0x10000,63)
+		.mfr_id		= MANUFACTURER_AMD,
+		.dev_id		= AM29F800BB,
+		.name		= "AMD AM29F800BB",
+		.uaddr		= {
+			[0] = MTD_UADDR_0x0AAA_0x0555,  /* x8 */
+			[1] = MTD_UADDR_0x0555_0x02AA,  /* x16 */
+		},
+		.DevSize	= SIZE_1MiB,
+		.CmdSet		= P_ID_AMD_STD,
+		.NumEraseRegions= 4,
+		.regions	= {
+			ERASEINFO(0x04000,1),
+			ERASEINFO(0x02000,2),
+			ERASEINFO(0x08000,1),
+			ERASEINFO(0x10000,15),
 		}
 	}, {
-		mfr_id: MANUFACTURER_TOSHIBA,
-		dev_id: TC58FVT321,
-		name: "Toshiba TC58FVT321",
-		DevSize: SIZE_4MiB,
-		CmdSet:	P_ID_AMD_STD,
-		NumEraseRegions: 2,
-		regions: {ERASEINFO(0x10000,63),
-			  ERASEINFO(0x02000,8)
+		.mfr_id		= MANUFACTURER_AMD,
+		.dev_id		= AM29LV800BT,
+		.name		= "AMD AM29LV800BT",
+		.uaddr		= {
+			[0] = MTD_UADDR_0x0AAA_0x0555,  /* x8 */
+			[1] = MTD_UADDR_0x0555_0x02AA,  /* x16 */
+		},
+		.DevSize	= SIZE_1MiB,
+		.CmdSet		= P_ID_AMD_STD,
+		.NumEraseRegions= 4,
+		.regions	= {
+			ERASEINFO(0x10000,15),
+			ERASEINFO(0x08000,1),
+			ERASEINFO(0x02000,2),
+			ERASEINFO(0x04000,1)
 		}
 	}, {
-		mfr_id: MANUFACTURER_TOSHIBA,
-		dev_id: TC58FVB641,
-		name: "Toshiba TC58FVB641",
-		DevSize: SIZE_8MiB,
-		CmdSet:	P_ID_AMD_STD,
-		NumEraseRegions: 2,
-		regions: {ERASEINFO(0x02000,8),
-			  ERASEINFO(0x10000,127)
+		.mfr_id		= MANUFACTURER_AMD,
+		.dev_id		= AM29F800BT,
+		.name		= "AMD AM29F800BT",
+		.uaddr		= {
+			[0] = MTD_UADDR_0x0AAA_0x0555,  /* x8 */
+			[1] = MTD_UADDR_0x0555_0x02AA,  /* x16 */
+		},
+		.DevSize	= SIZE_1MiB,
+		.CmdSet		= P_ID_AMD_STD,
+		.NumEraseRegions= 4,
+		.regions	= {
+			ERASEINFO(0x10000,15),
+			ERASEINFO(0x08000,1),
+			ERASEINFO(0x02000,2),
+			ERASEINFO(0x04000,1)
 		}
 	}, {
-		mfr_id: MANUFACTURER_TOSHIBA,
-		dev_id: TC58FVT641,
-		name: "Toshiba TC58FVT641",
-		DevSize: SIZE_8MiB,
-		CmdSet:	P_ID_AMD_STD,
-		NumEraseRegions: 2,
-		regions: {ERASEINFO(0x10000,127),
-			  ERASEINFO(0x02000,8)
+		.mfr_id		= MANUFACTURER_AMD,
+		.dev_id		= AM29F017D,
+		.name		= "AMD AM29F017D",
+		.uaddr		= {
+			[0] = MTD_UADDR_DONT_CARE     /* x8 */
+		},
+		.DevSize	= SIZE_2MiB,
+		.CmdSet		= P_ID_AMD_STD,
+		.NumEraseRegions= 1,
+		.regions	= {
+			ERASEINFO(0x10000,32),
 		}
 	}, {
-		mfr_id: MANUFACTURER_FUJITSU,
-		dev_id: MBM29LV650UE,
-		name: "Fujitsu MBM29LV650UE",
-		DevSize: SIZE_8MiB,
-		CmdSet: P_ID_AMD_STD,
-		NumEraseRegions: 1,
-		regions: {ERASEINFO(0x10000,128)
+		.mfr_id		= MANUFACTURER_AMD,
+		.dev_id		= AM29F016D,
+		.name		= "AMD AM29F016D",
+		.uaddr		= {
+			[0] = MTD_UADDR_0x0555_0x02AA /* x8 */
+		},
+		.DevSize	= SIZE_2MiB,
+		.CmdSet		= P_ID_AMD_STD,
+		.NumEraseRegions= 1,
+		.regions	= {
+			ERASEINFO(0x10000,32),
 		}
 	}, {
-		mfr_id: MANUFACTURER_FUJITSU,
-		dev_id: MBM29LV320TE,
-		name: "Fujitsu MBM29LV320TE",
-		DevSize: SIZE_4MiB,
-		CmdSet: P_ID_AMD_STD,
-		NumEraseRegions: 2,
-		regions: {ERASEINFO(0x10000,63),
-			  ERASEINFO(0x02000,8)
+		.mfr_id		= MANUFACTURER_AMD,
+		.dev_id		= AM29F080,
+		.name		= "AMD AM29F080",
+		.uaddr		= {
+			[0] = MTD_UADDR_0x0555_0x02AA /* x8 */
+		},
+		.DevSize	= SIZE_1MiB,
+		.CmdSet		= P_ID_AMD_STD,
+		.NumEraseRegions= 1,
+		.regions	= {
+			ERASEINFO(0x10000,16),
 		}
 	}, {
-		mfr_id: MANUFACTURER_FUJITSU,
-		dev_id: MBM29LV320BE,
-		name: "Fujitsu MBM29LV320BE",
-		DevSize: SIZE_4MiB,
-		CmdSet: P_ID_AMD_STD,
-		NumEraseRegions: 2,
-		regions: {ERASEINFO(0x02000,8),
-			  ERASEINFO(0x10000,63)
+		.mfr_id		= MANUFACTURER_AMD,
+		.dev_id		= AM29F040,
+		.name		= "AMD AM29F040",
+		.uaddr		= {
+			[0] = MTD_UADDR_0x0555_0x02AA /* x8 */
+		},
+		.DevSize	= SIZE_512KiB,
+		.CmdSet		= P_ID_AMD_STD,
+		.NumEraseRegions= 1,
+		.regions	= {
+			ERASEINFO(0x10000,8),
 		}
 	}, {
-		mfr_id: MANUFACTURER_FUJITSU,
-		dev_id: MBM29LV160TE,
-		name: "Fujitsu MBM29LV160TE",
-		DevSize: SIZE_2MiB,
-		CmdSet:	P_ID_AMD_STD,
-		NumEraseRegions: 4,
-		regions: {ERASEINFO(0x10000,31),
-			  ERASEINFO(0x08000,1),
-			  ERASEINFO(0x02000,2),
-			  ERASEINFO(0x04000,1)
+		.mfr_id		= MANUFACTURER_AMD,
+		.dev_id		= AM29LV040B,
+		.name		= "AMD AM29LV040B",
+		.uaddr		= {
+			[0] = MTD_UADDR_0x0555_0x02AA /* x8 */
+		},
+		.DevSize	= SIZE_512KiB,
+		.CmdSet		= P_ID_AMD_STD,
+		.NumEraseRegions= 1,
+		.regions	= {
+			ERASEINFO(0x10000,8),
 		}
 	}, {
-		mfr_id: MANUFACTURER_FUJITSU,
-		dev_id: MBM29LV160BE,
-		name: "Fujitsu MBM29LV160BE",
-		DevSize: SIZE_2MiB,
-		CmdSet:	P_ID_AMD_STD,
-		NumEraseRegions: 4,
-		regions: {ERASEINFO(0x04000,1),
-			  ERASEINFO(0x02000,2),
-			  ERASEINFO(0x08000,1),
-			  ERASEINFO(0x10000,31)
+		.mfr_id		= MANUFACTURER_ATMEL,
+		.dev_id		= AT49BV512,
+		.name		= "Atmel AT49BV512",
+		.uaddr		= {
+			[0] = MTD_UADDR_0x5555_0x2AAA /* x8 */
+		},
+		.DevSize	= SIZE_64KiB,
+		.CmdSet		= P_ID_AMD_STD,
+		.NumEraseRegions= 1,
+		.regions	= {
+			ERASEINFO(0x10000,1)
 		}
 	}, {
-		mfr_id: MANUFACTURER_FUJITSU,
-		dev_id: MBM29LV800BA,
-		name: "Fujitsu MBM29LV800BA",
-		DevSize: SIZE_1MiB,
-		CmdSet:	P_ID_AMD_STD,
-		NumEraseRegions: 4,
-		regions: {ERASEINFO(0x04000,1),
-			  ERASEINFO(0x02000,2),
-			  ERASEINFO(0x08000,1),
-			  ERASEINFO(0x10000,15)
-		}
-	}, {
-		mfr_id: MANUFACTURER_FUJITSU,
-		dev_id: MBM29LV800TA,
-		name: "Fujitsu MBM29LV800TA",
-		DevSize: SIZE_1MiB,
-		CmdSet:	P_ID_AMD_STD,
-		NumEraseRegions: 4,
-		regions: {ERASEINFO(0x10000,15),
- 			  ERASEINFO(0x08000,1),
- 			  ERASEINFO(0x02000,2),
- 			  ERASEINFO(0x04000,1)
-		}
-	}, {
-		mfr_id: MANUFACTURER_AMD,
-		dev_id: AM29LV800BB,
-		name: "AMD AM29LV800BB",
-		DevSize: SIZE_1MiB,
-		CmdSet:	P_ID_AMD_STD,
-		NumEraseRegions: 4,
-		regions: {ERASEINFO(0x04000,1),
-			  ERASEINFO(0x02000,2),
-			  ERASEINFO(0x08000,1),
-			  ERASEINFO(0x10000,15),
-		}
-	}, {
-		mfr_id: MANUFACTURER_AMD,
-		dev_id: AM29F800BB,
-		name: "AMD AM29F800BB",
-		DevSize: SIZE_1MiB,
-		CmdSet:	P_ID_AMD_STD,
-		NumEraseRegions: 4,
-		regions: {ERASEINFO(0x04000,1),
-			  ERASEINFO(0x02000,2),
-			  ERASEINFO(0x08000,1),
-			  ERASEINFO(0x10000,15),
-		}
-	}, {
-		mfr_id: MANUFACTURER_AMD,
-		dev_id: AM29LV800BT,
-		name: "AMD AM29LV800BT",
-		DevSize: SIZE_1MiB,
-		CmdSet:	P_ID_AMD_STD,
-		NumEraseRegions: 4,
-		regions: {ERASEINFO(0x10000,15),
-			  ERASEINFO(0x08000,1),
-			  ERASEINFO(0x02000,2),
-			  ERASEINFO(0x04000,1)
-		}
-	}, {
-		mfr_id: MANUFACTURER_AMD,
-		dev_id: AM29F800BT,
-		name: "AMD AM29F800BT",
-		DevSize: SIZE_1MiB,
-		CmdSet:	P_ID_AMD_STD,
-		NumEraseRegions: 4,
-		regions: {ERASEINFO(0x10000,15),
-			  ERASEINFO(0x08000,1),
-			  ERASEINFO(0x02000,2),
-			  ERASEINFO(0x04000,1)
-		}
-	}, {
-		mfr_id: MANUFACTURER_AMD,
-		dev_id: AM29LV800BB,
-		name: "AMD AM29LV800BB",
-		DevSize: SIZE_1MiB,
-		CmdSet:	P_ID_AMD_STD,
-		NumEraseRegions: 4,
-		regions: {ERASEINFO(0x10000,15),
-			  ERASEINFO(0x08000,1),
-			  ERASEINFO(0x02000,2),
-			  ERASEINFO(0x04000,1)
-		}
-	}, {
-		mfr_id:			MANUFACTURER_INTEL,
-		dev_id:			I28F004B3B,
-		name:			"Intel 28F004B3B",
-		DevSize:		SIZE_512KiB,
-		CmdSet:			P_ID_INTEL_STD,
-		NumEraseRegions:	2,
-		regions: {
-			ERASEINFO(0x02000, 8),
-			ERASEINFO(0x10000, 7),
-		}
-	}, {
-		mfr_id:			MANUFACTURER_INTEL,
-		dev_id:			I28F004B3T,
-		name:			"Intel 28F004B3T",
-		DevSize:		SIZE_512KiB,
-		CmdSet:			P_ID_INTEL_STD,
-		NumEraseRegions:	2,
-		regions: {
-			ERASEINFO(0x10000, 7),
-			ERASEINFO(0x02000, 8),
-		}
-	}, {
-		mfr_id:			MANUFACTURER_INTEL,
-		dev_id:			I28F400B3B,
-		name:			"Intel 28F400B3B",
-		DevSize:		SIZE_512KiB,
-		CmdSet:			P_ID_INTEL_STD,
-		NumEraseRegions:	2,
-		regions: {
-			ERASEINFO(0x02000, 8),
-			ERASEINFO(0x10000, 7),
-		}
-	}, {
-		mfr_id:			MANUFACTURER_INTEL,
-		dev_id:			I28F400B3T,
-		name:			"Intel 28F400B3T",
-		DevSize:		SIZE_512KiB,
-		CmdSet:			P_ID_INTEL_STD,
-		NumEraseRegions:	2,
-		regions: {
-			ERASEINFO(0x10000, 7),
-			ERASEINFO(0x02000, 8),
-		}
-	}, {
-		mfr_id:			MANUFACTURER_INTEL,
-		dev_id:			I28F008B3B,
-		name:			"Intel 28F008B3B",
-		DevSize:		SIZE_1MiB,
-		CmdSet:			P_ID_INTEL_STD,
-		NumEraseRegions:	2,
-		regions: {
-			ERASEINFO(0x02000, 8),
-			ERASEINFO(0x10000, 15),
-		}
-	}, {
-		mfr_id:			MANUFACTURER_INTEL,
-		dev_id:			I28F008B3T,
-		name:			"Intel 28F008B3T",
-		DevSize:		SIZE_1MiB,
-		CmdSet:			P_ID_INTEL_STD,
-		NumEraseRegions:	2,
-		regions: {
-			ERASEINFO(0x10000, 15),
-			ERASEINFO(0x02000, 8),
-		}
-	}, {
-		mfr_id: MANUFACTURER_INTEL,
-		dev_id: I28F008S5,
-		name: "Intel 28F008S5",
-		DevSize: SIZE_1MiB,
-		CmdSet: P_ID_INTEL_EXT,
-		NumEraseRegions: 1,
-		regions: {ERASEINFO(0x10000,16),
-		}
-	}, {
-		mfr_id: MANUFACTURER_INTEL,
-		dev_id: I28F016S5,
-		name: "Intel 28F016S5",
-		DevSize: SIZE_2MiB,
-		CmdSet: P_ID_INTEL_EXT,
-		NumEraseRegions: 1,
-		regions: {ERASEINFO(0x10000,32),
-		}
-	}, {
-		mfr_id:			MANUFACTURER_INTEL,
-		dev_id:			I28F008SA,
-		name:			"Intel 28F008SA",
-		DevSize:		SIZE_1MiB,
-		CmdSet:			P_ID_INTEL_STD,
-		NumEraseRegions:	1,
-		regions: {
-			ERASEINFO(0x10000, 16),
-		}
-	}, {
-		mfr_id:			MANUFACTURER_INTEL,
-		dev_id:			I28F800B3B,
-		name:			"Intel 28F800B3B",
-		DevSize:		SIZE_1MiB,
-		CmdSet:			P_ID_INTEL_STD,
-		NumEraseRegions:	2,
-		regions: {
-			ERASEINFO(0x02000, 8),
-			ERASEINFO(0x10000, 15),
-		}
-	}, {
-		mfr_id:			MANUFACTURER_INTEL,
-		dev_id:			I28F800B3T,
-		name:			"Intel 28F800B3T",
-		DevSize:		SIZE_1MiB,
-		CmdSet:			P_ID_INTEL_STD,
-		NumEraseRegions:	2,
-		regions: {
-			ERASEINFO(0x10000, 15),
-			ERASEINFO(0x02000, 8),
-		}
-	}, {
-		mfr_id:			MANUFACTURER_INTEL,
-		dev_id:			I28F016B3B,
-		name:			"Intel 28F016B3B",
-		DevSize:		SIZE_2MiB,
-		CmdSet:			P_ID_INTEL_STD,
-		NumEraseRegions:	2,
-		regions: {
-			ERASEINFO(0x02000, 8),
-			ERASEINFO(0x10000, 31),
-		}
-	}, {
-		mfr_id:			MANUFACTURER_INTEL,
-		dev_id:			I28F016S3,
-		name:			"Intel I28F016S3",
-		DevSize:		SIZE_2MiB,
-		CmdSet:			P_ID_INTEL_STD,
-		NumEraseRegions:	1,
-		regions: {
-			ERASEINFO(0x10000, 32),
-		}
-	}, {
-		mfr_id:			MANUFACTURER_INTEL,
-		dev_id:			I28F016B3T,
-		name:			"Intel 28F016B3T",
-		DevSize:		SIZE_2MiB,
-		CmdSet:			P_ID_INTEL_STD,
-		NumEraseRegions:	2,
-		regions: {
-			ERASEINFO(0x10000, 31),
-			ERASEINFO(0x02000, 8),
-		}
-	}, {
-		mfr_id:			MANUFACTURER_INTEL,
-		dev_id:			I28F160B3B,
-		name:			"Intel 28F160B3B",
-		DevSize:		SIZE_2MiB,
-		CmdSet:			P_ID_INTEL_STD,
-		NumEraseRegions:	2,
-		regions: {
-			ERASEINFO(0x02000, 8),
-			ERASEINFO(0x10000, 31),
-		}
-	}, {
-		mfr_id:			MANUFACTURER_INTEL,
-		dev_id:			I28F160B3T,
-		name:			"Intel 28F160B3T",
-		DevSize:		SIZE_2MiB,
-		CmdSet:			P_ID_INTEL_STD,
-		NumEraseRegions:	2,
-		regions: {
-			ERASEINFO(0x10000, 31),
-			ERASEINFO(0x02000, 8),
-		}
-	}, {
-		mfr_id:			MANUFACTURER_INTEL,
-		dev_id:			I28F320B3B,
-		name:			"Intel 28F320B3B",
-		DevSize:		SIZE_4MiB,
-		CmdSet:			P_ID_INTEL_STD,
-		NumEraseRegions:	2,
-		regions: {
-			ERASEINFO(0x02000, 8),
-			ERASEINFO(0x10000, 63),
-		}
-	}, {
-		mfr_id:			MANUFACTURER_INTEL,
-		dev_id:			I28F320B3T,
-		name:			"Intel 28F320B3T",
-		DevSize:		SIZE_4MiB,
-		CmdSet:			P_ID_INTEL_STD,
-		NumEraseRegions:	2,
-		regions: {
-			ERASEINFO(0x10000, 63),
-			ERASEINFO(0x02000, 8),
-		}
-	}, {
-		mfr_id:			MANUFACTURER_INTEL,
-		dev_id:			I28F640B3B,
-		name:			"Intel 28F640B3B",
-		DevSize:		SIZE_8MiB,
-		CmdSet:			P_ID_INTEL_STD,
-		NumEraseRegions:	2,
-		regions: {
-			ERASEINFO(0x02000, 8),
-			ERASEINFO(0x10000, 127),
-		}
-	}, {
-		mfr_id:			MANUFACTURER_INTEL,
-		dev_id:			I28F640B3T,
-		name:			"Intel 28F640B3T",
-		DevSize:		SIZE_8MiB,
-		CmdSet:			P_ID_INTEL_STD,
-		NumEraseRegions:	2,
-		regions: {
-			ERASEINFO(0x10000, 127),
-			ERASEINFO(0x02000, 8),
-		}
-	}, {
-		mfr_id: MANUFACTURER_INTEL,
-		dev_id: I82802AB,
-		name: "Intel 82802AB",
-		DevSize: SIZE_512KiB,
-		CmdSet: P_ID_INTEL_EXT,
-		NumEraseRegions: 1,
-		regions: {ERASEINFO(0x10000,8),
-		}
-	}, {
-		mfr_id: MANUFACTURER_INTEL,
-		dev_id: I82802AC,
-		name: "Intel 82802AC",
-		DevSize: SIZE_1MiB,
-		CmdSet: P_ID_INTEL_EXT,
-		NumEraseRegions: 1,
-		regions: {ERASEINFO(0x10000,16),
-		}
-	}, {
-		mfr_id: MANUFACTURER_ST,
-		dev_id: M29W800T,
-		name: "ST M29W800T",
-		DevSize: SIZE_1MiB,
-		CmdSet:	P_ID_AMD_STD,
-		NumEraseRegions: 4,
-		regions: {ERASEINFO(0x10000,15),
-			  ERASEINFO(0x08000,1),
-			  ERASEINFO(0x02000,2),
-			  ERASEINFO(0x04000,1)
-		}
-	}, {
-		mfr_id: MANUFACTURER_ST,
-		dev_id: M29W160DT,
-		name: "ST M29W160DT",
-		DevSize: SIZE_2MiB,
-		CmdSet:	P_ID_AMD_STD,
-		NumEraseRegions: 4,
-		regions: {ERASEINFO(0x10000,31),
-			  ERASEINFO(0x08000,1),
-			  ERASEINFO(0x02000,2),
-			  ERASEINFO(0x04000,1)
-		}
-	}, {
-		mfr_id: MANUFACTURER_ST,
-		dev_id: M29W160DB,
-		name: "ST M29W160DB",
-		DevSize: SIZE_2MiB,
-		CmdSet:	P_ID_AMD_STD,
-		NumEraseRegions: 4,
-		regions: {ERASEINFO(0x04000,1),
-			  ERASEINFO(0x02000,2),
-			  ERASEINFO(0x08000,1),
-			  ERASEINFO(0x10000,31)
-		}
-	}, {
-		mfr_id: MANUFACTURER_ATMEL,
-		dev_id: AT49BV512,
-		name: "Atmel AT49BV512",
-		DevSize: SIZE_64KiB,
-		CmdSet: P_ID_AMD_STD,
-		NumEraseRegions: 1,
-		regions: {ERASEINFO(0x10000,1)
-		}
-	}, {
-		mfr_id: MANUFACTURER_ATMEL,
-		dev_id: AT29LV512,
-		name: "Atmel AT29LV512",
-		DevSize: SIZE_64KiB,
-		CmdSet: P_ID_AMD_STD,
-		NumEraseRegions: 1,
-		regions: {
+		.mfr_id		= MANUFACTURER_ATMEL,
+		.dev_id		= AT29LV512,
+		.name		= "Atmel AT29LV512",
+		.uaddr		= {
+			[0] = MTD_UADDR_0x5555_0x2AAA /* x8 */
+		},
+		.DevSize	= SIZE_64KiB,
+		.CmdSet		= P_ID_AMD_STD,
+		.NumEraseRegions= 1,
+		.regions	= {
 			ERASEINFO(0x80,256),
 			ERASEINFO(0x80,256)
 		}
 	}, {
-		mfr_id: MANUFACTURER_ATMEL,
-		dev_id: AT49BV16X,
-		name: "Atmel AT49BV16X",
-		DevSize: SIZE_2MiB,
-		CmdSet: P_ID_AMD_STD,
-		NumEraseRegions: 2,
-		regions: {ERASEINFO(0x02000,8),
-			  ERASEINFO(0x10000,31)
+		.mfr_id		= MANUFACTURER_ATMEL,
+		.dev_id		= AT49BV16X,
+		.name		= "Atmel AT49BV16X",
+		.uaddr		= {
+			[0] = MTD_UADDR_0x0555_0x0AAA,  /* x8 */
+			[1] = MTD_UADDR_0x0555_0x0AAA   /* x16 */
+		},
+		.DevSize	= SIZE_2MiB,
+		.CmdSet		= P_ID_AMD_STD,
+		.NumEraseRegions= 2,
+		.regions	= {
+			ERASEINFO(0x02000,8),
+			ERASEINFO(0x10000,31)
 		}
 	}, {
-		mfr_id: MANUFACTURER_ATMEL,
-		dev_id: AT49BV16XT,
-		name: "Atmel AT49BV16XT",
-		DevSize: SIZE_2MiB,
-		CmdSet: P_ID_AMD_STD,
-		NumEraseRegions: 2,
-		regions: {ERASEINFO(0x10000,31),
-			  ERASEINFO(0x02000,8)
+		.mfr_id		= MANUFACTURER_ATMEL,
+		.dev_id		= AT49BV16XT,
+		.name		= "Atmel AT49BV16XT",
+		.uaddr		= {
+			[0] = MTD_UADDR_0x0555_0x0AAA,  /* x8 */
+			[1] = MTD_UADDR_0x0555_0x0AAA   /* x16 */
+		},
+		.DevSize	= SIZE_2MiB,
+		.CmdSet		= P_ID_AMD_STD,
+		.NumEraseRegions= 2,
+		.regions	= {
+			ERASEINFO(0x10000,31),
+			ERASEINFO(0x02000,8)
 		}
 	}, {
-		mfr_id: MANUFACTURER_ATMEL,
-		dev_id: AT49BV32X,
-		name: "Atmel AT49BV32X",
-		DevSize: SIZE_4MiB,
-		CmdSet: P_ID_AMD_STD,
-		NumEraseRegions: 2,
-		regions: {ERASEINFO(0x02000,8),
-			  ERASEINFO(0x10000,63)
+		.mfr_id		= MANUFACTURER_ATMEL,
+		.dev_id		= AT49BV32X,
+		.name		= "Atmel AT49BV32X",
+		.uaddr		= {
+			[0] = MTD_UADDR_0x0555_0x0AAA,  /* x8 */
+			[1] = MTD_UADDR_0x0555_0x0AAA   /* x16 */
+		},
+		.DevSize	= SIZE_4MiB,
+		.CmdSet		= P_ID_AMD_STD,
+		.NumEraseRegions= 2,
+		.regions	= {
+			ERASEINFO(0x02000,8),
+			ERASEINFO(0x10000,63)
 		}
 	}, {
-		mfr_id: MANUFACTURER_ATMEL,
-		dev_id: AT49BV32XT,
-		name: "Atmel AT49BV32XT",
-		DevSize: SIZE_4MiB,
-		CmdSet: P_ID_AMD_STD,
-		NumEraseRegions: 2,
-		regions: {ERASEINFO(0x10000,63),
-			  ERASEINFO(0x02000,8)
+		.mfr_id		= MANUFACTURER_ATMEL,
+		.dev_id		= AT49BV32XT,
+		.name		= "Atmel AT49BV32XT",
+		.uaddr		= {
+			[0] = MTD_UADDR_0x0555_0x0AAA,  /* x8 */
+			[1] = MTD_UADDR_0x0555_0x0AAA   /* x16 */
+		},
+		.DevSize	= SIZE_4MiB,
+		.CmdSet		= P_ID_AMD_STD,
+		.NumEraseRegions= 2,
+		.regions	= {
+			ERASEINFO(0x10000,63),
+			ERASEINFO(0x02000,8)
 		}
 	}, {
-		mfr_id: MANUFACTURER_AMD,
-		dev_id: AM29F017D,
-		name: "AMD AM29F017D",
-		DevSize: SIZE_2MiB,
-		CmdSet: P_ID_AMD_STD,
-		NumEraseRegions: 1,
-		regions: {ERASEINFO(0x10000,32),
+		.mfr_id		= MANUFACTURER_FUJITSU,
+		.dev_id		= MBM29LV650UE,
+		.name		= "Fujitsu MBM29LV650UE",
+		.uaddr		= {
+			[0] = MTD_UADDR_DONT_CARE     /* x16 */
+		},
+		.DevSize	= SIZE_8MiB,
+		.CmdSet		= P_ID_AMD_STD,
+		.NumEraseRegions= 1,
+		.regions	= {
+			ERASEINFO(0x10000,128)
 		}
 	}, {
-		mfr_id: MANUFACTURER_AMD,
-		dev_id: AM29F016,
-		name: "AMD AM29F016",
-		DevSize: SIZE_2MiB,
-		CmdSet: P_ID_AMD_STD,
-		NumEraseRegions: 1,
-		regions: {ERASEINFO(0x10000,32),
+		.mfr_id		= MANUFACTURER_FUJITSU,
+		.dev_id		= MBM29LV320TE,
+		.name		= "Fujitsu MBM29LV320TE",
+		.uaddr		= {
+			[0] = MTD_UADDR_0x0AAA_0x0555,  /* x8 */
+			[1] = MTD_UADDR_0x0555_0x02AA,  /* x16 */
+		},
+		.DevSize	= SIZE_4MiB,
+		.CmdSet		= P_ID_AMD_STD,
+		.NumEraseRegions= 2,
+		.regions	= {
+			ERASEINFO(0x10000,63),
+			ERASEINFO(0x02000,8)
 		}
 	}, {
-		mfr_id: MANUFACTURER_AMD,
-		dev_id: AM29F080,
-		name: "AMD AM29F080",
-		DevSize: SIZE_1MiB,
-		CmdSet: P_ID_AMD_STD,
-		NumEraseRegions: 1,
-		regions: {ERASEINFO(0x10000,16),
+		.mfr_id		= MANUFACTURER_FUJITSU,
+		.dev_id		= MBM29LV320BE,
+		.name		= "Fujitsu MBM29LV320BE",
+		.uaddr		= {
+			[0] = MTD_UADDR_0x0AAA_0x0555,  /* x8 */
+			[1] = MTD_UADDR_0x0555_0x02AA,  /* x16 */
+		},
+		.DevSize	= SIZE_4MiB,
+		.CmdSet		= P_ID_AMD_STD,
+		.NumEraseRegions= 2,
+		.regions	= {
+			ERASEINFO(0x02000,8),
+			ERASEINFO(0x10000,63)
 		}
 	}, {
-		mfr_id: MANUFACTURER_AMD,
-		dev_id: AM29F040,
-		name: "AMD AM29F040",
-		DevSize: SIZE_512KiB,
-		CmdSet: P_ID_AMD_STD,
-		NumEraseRegions: 1,
-		regions: {ERASEINFO(0x10000,8),
+		.mfr_id		= MANUFACTURER_FUJITSU,
+		.dev_id		= MBM29LV160TE,
+		.name		= "Fujitsu MBM29LV160TE",
+		.uaddr		= {
+			[0] = MTD_UADDR_0x0AAA_0x0555,  /* x8 */
+			[1] = MTD_UADDR_0x0555_0x02AA,  /* x16 */
+		},
+		.DevSize	= SIZE_2MiB,
+		.CmdSet		= P_ID_AMD_STD,
+		.NumEraseRegions= 4,
+		.regions	= {
+			ERASEINFO(0x10000,31),
+			ERASEINFO(0x08000,1),
+			ERASEINFO(0x02000,2),
+			ERASEINFO(0x04000,1)
 		}
 	}, {
-		mfr_id: MANUFACTURER_AMD,
-		dev_id: AM29LV040B,
-		name: "AMD AM29LV040B",
-		DevSize: SIZE_512KiB,
-		CmdSet: P_ID_AMD_STD,
-		NumEraseRegions: 1,
-		regions: {ERASEINFO(0x10000,8),
+		.mfr_id		= MANUFACTURER_FUJITSU,
+		.dev_id		= MBM29LV160BE,
+		.name		= "Fujitsu MBM29LV160BE",
+		.uaddr		= {
+			[0] = MTD_UADDR_0x0AAA_0x0555,  /* x8 */
+			[1] = MTD_UADDR_0x0555_0x02AA,  /* x16 */
+		},
+		.DevSize	= SIZE_2MiB,
+		.CmdSet		= P_ID_AMD_STD,
+		.NumEraseRegions= 4,
+		.regions	= {
+			ERASEINFO(0x04000,1),
+			ERASEINFO(0x02000,2),
+			ERASEINFO(0x08000,1),
+			ERASEINFO(0x10000,31)
+		}
+	}, {
+		.mfr_id		= MANUFACTURER_FUJITSU,
+		.dev_id		= MBM29LV800BA,
+		.name		= "Fujitsu MBM29LV800BA",
+		.uaddr		= {
+			[0] = MTD_UADDR_0x0AAA_0x0555,  /* x8 */
+			[1] = MTD_UADDR_0x0555_0x02AA,  /* x16 */
+		},
+		.DevSize	= SIZE_1MiB,
+		.CmdSet		= P_ID_AMD_STD,
+		.NumEraseRegions= 4,
+		.regions	= {
+			ERASEINFO(0x04000,1),
+			ERASEINFO(0x02000,2),
+			ERASEINFO(0x08000,1),
+			ERASEINFO(0x10000,15)
+		}
+	}, {
+		.mfr_id		= MANUFACTURER_FUJITSU,
+		.dev_id		= MBM29LV800TA,
+		.name		= "Fujitsu MBM29LV800TA",
+		.uaddr		= {
+			[0] = MTD_UADDR_0x0AAA_0x0555,  /* x8 */
+			[1] = MTD_UADDR_0x0555_0x02AA,  /* x16 */
+		},
+		.DevSize	= SIZE_1MiB,
+		.CmdSet		= P_ID_AMD_STD,
+		.NumEraseRegions= 4,
+		.regions	= {
+			ERASEINFO(0x10000,15),
+			ERASEINFO(0x08000,1),
+			ERASEINFO(0x02000,2),
+			ERASEINFO(0x04000,1)
+		}
+	}, {
+		.mfr_id		= MANUFACTURER_FUJITSU,
+		.dev_id		= MBM29LV400BC,
+		.name		= "Fujitsu MBM29LV400BC",
+		.uaddr		= {
+			[0] = MTD_UADDR_0x0AAA_0x0555,  /* x8 */
+			[1] = MTD_UADDR_0x0555_0x02AA,  /* x16 */
+		},
+		.DevSize	= SIZE_512KiB,
+		.CmdSet		= P_ID_AMD_STD,
+		.NumEraseRegions= 4,
+		.regions	= {
+			ERASEINFO(0x04000,1),
+			ERASEINFO(0x02000,2),
+			ERASEINFO(0x08000,1),
+			ERASEINFO(0x10000,7)
+		}
+	}, {
+		.mfr_id		= MANUFACTURER_FUJITSU,
+		.dev_id		= MBM29LV400TC,
+		.name		= "Fujitsu MBM29LV400TC",
+		.uaddr		= {
+			[0] = MTD_UADDR_0x0AAA_0x0555,  /* x8 */
+			[1] = MTD_UADDR_0x0555_0x02AA,  /* x16 */
+		},
+		.DevSize	= SIZE_512KiB,
+		.CmdSet		= P_ID_AMD_STD,
+		.NumEraseRegions= 4,
+		.regions	= {
+			ERASEINFO(0x10000,7),
+			ERASEINFO(0x08000,1),
+			ERASEINFO(0x02000,2),
+			ERASEINFO(0x04000,1)
+		}
+	}, {
+		.mfr_id		= MANUFACTURER_INTEL,
+		.dev_id		= I28F004B3B,
+		.name		= "Intel 28F004B3B",
+		.uaddr		= {
+			[0] = MTD_UADDR_UNNECESSARY,    /* x8 */
+		},
+		.DevSize	= SIZE_512KiB,
+		.CmdSet		= P_ID_INTEL_STD,
+		.NumEraseRegions= 2,
+		.regions	= {
+			ERASEINFO(0x02000, 8),
+			ERASEINFO(0x10000, 7),
+		}
+	}, {
+		.mfr_id		= MANUFACTURER_INTEL,
+		.dev_id		= I28F004B3T,
+		.name		= "Intel 28F004B3T",
+		.uaddr		= {
+			[0] = MTD_UADDR_UNNECESSARY,    /* x8 */
+		},
+		.DevSize	= SIZE_512KiB,
+		.CmdSet		= P_ID_INTEL_STD,
+		.NumEraseRegions= 2,
+		.regions	= {
+			ERASEINFO(0x10000, 7),
+			ERASEINFO(0x02000, 8),
+		}
+	}, {
+		.mfr_id		= MANUFACTURER_INTEL,
+		.dev_id		= I28F400B3B,
+		.name		= "Intel 28F400B3B",
+		.uaddr		= {
+			[0] = MTD_UADDR_UNNECESSARY,    /* x8 */
+			[1] = MTD_UADDR_UNNECESSARY,    /* x16 */
+		},
+		.DevSize	= SIZE_512KiB,
+		.CmdSet		= P_ID_INTEL_STD,
+		.NumEraseRegions= 2,
+		.regions	= {
+			ERASEINFO(0x02000, 8),
+			ERASEINFO(0x10000, 7),
+		}
+	}, {
+		.mfr_id		= MANUFACTURER_INTEL,
+		.dev_id		= I28F400B3T,
+		.name		= "Intel 28F400B3T",
+		.uaddr		= {
+			[0] = MTD_UADDR_UNNECESSARY,    /* x8 */
+			[1] = MTD_UADDR_UNNECESSARY,    /* x16 */
+		},
+		.DevSize	= SIZE_512KiB,
+		.CmdSet		= P_ID_INTEL_STD,
+		.NumEraseRegions= 2,
+		.regions	= {
+			ERASEINFO(0x10000, 7),
+			ERASEINFO(0x02000, 8),
+		}
+	}, {
+		.mfr_id		= MANUFACTURER_INTEL,
+		.dev_id		= I28F008B3B,
+		.name		= "Intel 28F008B3B",
+		.uaddr		= {
+			[0] = MTD_UADDR_UNNECESSARY,    /* x8 */
+		},
+		.DevSize	= SIZE_1MiB,
+		.CmdSet		= P_ID_INTEL_STD,
+		.NumEraseRegions= 2,
+		.regions	= {
+			ERASEINFO(0x02000, 8),
+			ERASEINFO(0x10000, 15),
+		}
+	}, {
+		.mfr_id		= MANUFACTURER_INTEL,
+		.dev_id		= I28F008B3T,
+		.name		= "Intel 28F008B3T",
+		.uaddr		= {
+			[0] = MTD_UADDR_UNNECESSARY,    /* x8 */
+		},
+		.DevSize	= SIZE_1MiB,
+		.CmdSet		= P_ID_INTEL_STD,
+		.NumEraseRegions= 2,
+		.regions	= {
+			ERASEINFO(0x10000, 15),
+			ERASEINFO(0x02000, 8),
+		}
+	}, {
+		.mfr_id		= MANUFACTURER_INTEL,
+		.dev_id		= I28F008S5,
+		.name		= "Intel 28F008S5",
+		.uaddr		= {
+			[0] = MTD_UADDR_UNNECESSARY,    /* x8 */
+		},
+		.DevSize	= SIZE_1MiB,
+		.CmdSet		= P_ID_INTEL_EXT,
+		.NumEraseRegions= 1,
+		.regions	= {
+			ERASEINFO(0x10000,16),
+		}
+	}, {
+		.mfr_id		= MANUFACTURER_INTEL,
+		.dev_id		= I28F016S5,
+		.name		= "Intel 28F016S5",
+		.uaddr		= {
+			[0] = MTD_UADDR_UNNECESSARY,    /* x8 */
+		},
+		.DevSize	= SIZE_2MiB,
+		.CmdSet		= P_ID_INTEL_EXT,
+		.NumEraseRegions= 1,
+		.regions	= {
+			ERASEINFO(0x10000,32),
+		}
+	}, {
+		.mfr_id		= MANUFACTURER_INTEL,
+		.dev_id		= I28F008SA,
+		.name		= "Intel 28F008SA",
+		.uaddr		= {
+			[0] = MTD_UADDR_UNNECESSARY,    /* x8 */
+		},
+		.DevSize	= SIZE_1MiB,
+		.CmdSet		= P_ID_INTEL_STD,
+		.NumEraseRegions= 1,
+		.regions	= {
+			ERASEINFO(0x10000, 16),
+		}
+	}, {
+		.mfr_id		= MANUFACTURER_INTEL,
+		.dev_id		= I28F800B3B,
+		.name		= "Intel 28F800B3B",
+		.uaddr		= {
+			[1] = MTD_UADDR_UNNECESSARY,    /* x16 */
+		},
+		.DevSize	= SIZE_1MiB,
+		.CmdSet		= P_ID_INTEL_STD,
+		.NumEraseRegions= 2,
+		.regions	= {
+			ERASEINFO(0x02000, 8),
+			ERASEINFO(0x10000, 15),
+		}
+	}, {
+		.mfr_id		= MANUFACTURER_INTEL,
+		.dev_id		= I28F800B3T,
+		.name		= "Intel 28F800B3T",
+		.uaddr		= {
+			[1] = MTD_UADDR_UNNECESSARY,    /* x16 */
+		},
+		.DevSize	= SIZE_1MiB,
+		.CmdSet		= P_ID_INTEL_STD,
+		.NumEraseRegions= 2,
+		.regions	= {
+			ERASEINFO(0x10000, 15),
+			ERASEINFO(0x02000, 8),
+		}
+	}, {
+		.mfr_id		= MANUFACTURER_INTEL,
+		.dev_id		= I28F016B3B,
+		.name		= "Intel 28F016B3B",
+		.uaddr		= {
+			[0] = MTD_UADDR_UNNECESSARY,    /* x8 */
+		},
+		.DevSize	= SIZE_2MiB,
+		.CmdSet		= P_ID_INTEL_STD,
+		.NumEraseRegions= 2,
+		.regions	= {
+			ERASEINFO(0x02000, 8),
+			ERASEINFO(0x10000, 31),
+		}
+	}, {
+		.mfr_id		= MANUFACTURER_INTEL,
+		.dev_id		= I28F016S3,
+		.name		= "Intel I28F016S3",
+		.uaddr		= {
+			[0] = MTD_UADDR_UNNECESSARY,    /* x8 */
+		},
+		.DevSize	= SIZE_2MiB,
+		.CmdSet		= P_ID_INTEL_STD,
+		.NumEraseRegions= 1,
+		.regions	= {
+			ERASEINFO(0x10000, 32),
+		}
+	}, {
+		.mfr_id		= MANUFACTURER_INTEL,
+		.dev_id		= I28F016B3T,
+		.name		= "Intel 28F016B3T",
+		.uaddr		= {
+			[0] = MTD_UADDR_UNNECESSARY,    /* x8 */
+		},
+		.DevSize	= SIZE_2MiB,
+		.CmdSet		= P_ID_INTEL_STD,
+		.NumEraseRegions= 2,
+		.regions	= {
+			ERASEINFO(0x10000, 31),
+			ERASEINFO(0x02000, 8),
+		}
+	}, {
+		.mfr_id		= MANUFACTURER_INTEL,
+		.dev_id		= I28F160B3B,
+		.name		= "Intel 28F160B3B",
+		.uaddr		= {
+			[1] = MTD_UADDR_UNNECESSARY,    /* x16 */
+		},
+		.DevSize	= SIZE_2MiB,
+		.CmdSet		= P_ID_INTEL_STD,
+		.NumEraseRegions= 2,
+		.regions	= {
+			ERASEINFO(0x02000, 8),
+			ERASEINFO(0x10000, 31),
+		}
+	}, {
+		.mfr_id		= MANUFACTURER_INTEL,
+		.dev_id		= I28F160B3T,
+		.name		= "Intel 28F160B3T",
+		.uaddr		= {
+			[1] = MTD_UADDR_UNNECESSARY,    /* x16 */
+		},
+		.DevSize	= SIZE_2MiB,
+		.CmdSet		= P_ID_INTEL_STD,
+		.NumEraseRegions= 2,
+		.regions	= {
+			ERASEINFO(0x10000, 31),
+			ERASEINFO(0x02000, 8),
+		}
+	}, {
+		.mfr_id		= MANUFACTURER_INTEL,
+		.dev_id		= I28F320B3B,
+		.name		= "Intel 28F320B3B",
+		.uaddr		= {
+			[1] = MTD_UADDR_UNNECESSARY,    /* x16 */
+		},
+		.DevSize	= SIZE_4MiB,
+		.CmdSet		= P_ID_INTEL_STD,
+		.NumEraseRegions= 2,
+		.regions	= {
+			ERASEINFO(0x02000, 8),
+			ERASEINFO(0x10000, 63),
+		}
+	}, {
+		.mfr_id		= MANUFACTURER_INTEL,
+		.dev_id		= I28F320B3T,
+		.name		= "Intel 28F320B3T",
+		.uaddr		= {
+			[1] = MTD_UADDR_UNNECESSARY,    /* x16 */
+		},
+		.DevSize	= SIZE_4MiB,
+		.CmdSet		= P_ID_INTEL_STD,
+		.NumEraseRegions= 2,
+		.regions	= {
+			ERASEINFO(0x10000, 63),
+			ERASEINFO(0x02000, 8),
+		}
+	}, {
+		.mfr_id		= MANUFACTURER_INTEL,
+		.dev_id		= I28F640B3B,
+		.name		= "Intel 28F640B3B",
+		.uaddr		= {
+			[1] = MTD_UADDR_UNNECESSARY,    /* x16 */
+		},
+		.DevSize	= SIZE_8MiB,
+		.CmdSet		= P_ID_INTEL_STD,
+		.NumEraseRegions= 2,
+		.regions	= {
+			ERASEINFO(0x02000, 8),
+			ERASEINFO(0x10000, 127),
+		}
+	}, {
+		.mfr_id		= MANUFACTURER_INTEL,
+		.dev_id		= I28F640B3T,
+		.name		= "Intel 28F640B3T",
+		.uaddr		= {
+			[1] = MTD_UADDR_UNNECESSARY,    /* x16 */
+		},
+		.DevSize	= SIZE_8MiB,
+		.CmdSet		= P_ID_INTEL_STD,
+		.NumEraseRegions= 2,
+		.regions	= {
+			ERASEINFO(0x10000, 127),
+			ERASEINFO(0x02000, 8),
+		}
+	}, {
+		.mfr_id		= MANUFACTURER_INTEL,
+		.dev_id		= I82802AB,
+		.name		= "Intel 82802AB",
+		.uaddr		= {
+			[0] = MTD_UADDR_UNNECESSARY,    /* x8 */
+		},
+		.DevSize	= SIZE_512KiB,
+		.CmdSet		= P_ID_INTEL_EXT,
+		.NumEraseRegions= 1,
+		.regions	= {
+			ERASEINFO(0x10000,8),
+		}
+	}, {
+		.mfr_id		= MANUFACTURER_INTEL,
+		.dev_id		= I82802AC,
+		.name		= "Intel 82802AC",
+		.uaddr		= {
+			[0] = MTD_UADDR_UNNECESSARY,    /* x8 */
+		},
+		.DevSize	= SIZE_1MiB,
+		.CmdSet		= P_ID_INTEL_EXT,
+		.NumEraseRegions= 1,
+		.regions	= {
+			ERASEINFO(0x10000,16),
+		}
+	}, {
+		.mfr_id		= MANUFACTURER_MACRONIX,
+		.dev_id		= MX29LV160T,
+		.name		= "MXIC MX29LV160T",
+		.uaddr		= {
+			[0] = MTD_UADDR_0x0AAA_0x0555,  /* x8 */
+			[1] = MTD_UADDR_0x0555_0x02AA,  /* x16 */
+		},
+		.DevSize	= SIZE_2MiB,
+		.CmdSet		= P_ID_AMD_STD,
+		.NumEraseRegions= 4,
+		.regions	= {
+			ERASEINFO(0x10000,31),
+			ERASEINFO(0x08000,1),
+			ERASEINFO(0x02000,2),
+			ERASEINFO(0x04000,1)
+		}
+	}, {
+		.mfr_id		= MANUFACTURER_MACRONIX,
+		.dev_id		= MX29LV160B,
+		.name		= "MXIC MX29LV160B",
+		.uaddr		= {
+			[0] = MTD_UADDR_0x0AAA_0x0555,  /* x8 */
+			[1] = MTD_UADDR_0x0555_0x02AA,  /* x16 */
+		},
+		.DevSize	= SIZE_2MiB,
+		.CmdSet		= P_ID_AMD_STD,
+		.NumEraseRegions= 4,
+		.regions	= {
+			ERASEINFO(0x04000,1),
+			ERASEINFO(0x02000,2),
+			ERASEINFO(0x08000,1),
+			ERASEINFO(0x10000,31)
+		}
+	}, {
+		.mfr_id		= MANUFACTURER_MACRONIX,
+		.dev_id		= MX29F016,
+		.name		= "Macronix MX29F016",
+		.uaddr		= {
+			[0] = MTD_UADDR_0x0555_0x02AA /* x8 */
+		},
+		.DevSize	= SIZE_2MiB,
+		.CmdSet		= P_ID_AMD_STD,
+		.NumEraseRegions= 1,
+		.regions	= {
+			ERASEINFO(0x10000,32),
 		}
         }, {
-		mfr_id: MANUFACTURER_ST,
-		dev_id: M29W040B,
-		name: "ST M29W040B",
-		DevSize: SIZE_512KiB,
-		CmdSet: P_ID_AMD_STD,
-		NumEraseRegions: 1,
-		regions: {ERASEINFO(0x10000,8),
+		.mfr_id		= MANUFACTURER_MACRONIX,
+		.dev_id		= MX29F004T,
+		.name		= "Macronix MX29F004T",
+		.uaddr		= {
+			[0] = MTD_UADDR_0x0555_0x02AA /* x8 */
+		},
+		.DevSize	= SIZE_512KiB,
+		.CmdSet		= P_ID_AMD_STD,
+		.NumEraseRegions= 4,
+		.regions	= {
+			ERASEINFO(0x10000,7),
+			ERASEINFO(0x08000,1),
+			ERASEINFO(0x02000,2),
+			ERASEINFO(0x04000,1),
+		}
+        }, {
+		.mfr_id		= MANUFACTURER_MACRONIX,
+		.dev_id		= MX29F004B,
+		.name		= "Macronix MX29F004B",
+		.uaddr		= {
+			[0] = MTD_UADDR_0x0555_0x02AA /* x8 */
+		},
+		.DevSize	= SIZE_512KiB,
+		.CmdSet		= P_ID_AMD_STD,
+		.NumEraseRegions= 4,
+		.regions	= {
+			ERASEINFO(0x04000,1),
+			ERASEINFO(0x02000,2),
+			ERASEINFO(0x08000,1),
+			ERASEINFO(0x10000,7),
 		}
 	}, {
-		mfr_id: MANUFACTURER_MACRONIX,
-		dev_id: MX29LV160T,
-		name: "MXIC MX29LV160T",
-		DevSize: SIZE_2MiB,
-		CmdSet: P_ID_AMD_STD,
-		NumEraseRegions: 4,
-		regions: {ERASEINFO(0x10000,31),
-			  ERASEINFO(0x08000,1),
-			  ERASEINFO(0x02000,2),
-			  ERASEINFO(0x04000,1)
+		.mfr_id		= MANUFACTURER_PMC,
+		.dev_id		= PM49FL002,
+		.name		= "PMC Pm49FL002",
+ 		.uaddr		= {
+			[0] = MTD_UADDR_0x5555_0x2AAA /* x8 */
+		},
+		.DevSize	= SIZE_256KiB,
+		.CmdSet		= P_ID_AMD_STD,
+		.NumEraseRegions= 1,
+		.regions	= {
+			ERASEINFO( 0x01000, 64 )
 		}
 	}, {
-		mfr_id: MANUFACTURER_MACRONIX,
-		dev_id: MX29LV160B,
-		name: "MXIC MX29LV160B",
-		DevSize: SIZE_2MiB,
-		CmdSet: P_ID_AMD_STD,
-		NumEraseRegions: 4,
-		regions: {ERASEINFO(0x04000,1),
-			  ERASEINFO(0x02000,2),
-			  ERASEINFO(0x08000,1),
-			  ERASEINFO(0x10000,31)
+		.mfr_id		= MANUFACTURER_PMC,
+		.dev_id		= PM49FL004,
+		.name		= "PMC Pm49FL004",
+ 		.uaddr		= {
+			[0] = MTD_UADDR_0x5555_0x2AAA /* x8 */
+		},
+		.DevSize	= SIZE_512KiB,
+		.CmdSet		= P_ID_AMD_STD,
+		.NumEraseRegions= 1,
+		.regions	= {
+			ERASEINFO( 0x01000, 128 )
 		}
 	}, {
-		mfr_id: MANUFACTURER_MACRONIX,
-		dev_id: MX29F016,
-		name: "Macronix MX29F016",
-		DevSize: SIZE_2MiB,
-		CmdSet: P_ID_AMD_STD,
-		NumEraseRegions: 1,
-		regions: {ERASEINFO(0x10000,32),
+		.mfr_id		= MANUFACTURER_PMC,
+		.dev_id		= PM49FL008,
+		.name		= "PMC Pm49FL008",
+ 		.uaddr		= {
+			[0] = MTD_UADDR_0x5555_0x2AAA /* x8 */
+		},
+		.DevSize	= SIZE_1MiB,
+		.CmdSet		= P_ID_AMD_STD,
+		.NumEraseRegions= 1,
+		.regions	= {
+			ERASEINFO( 0x01000, 256 )
 		}
         }, {
-		mfr_id: MANUFACTURER_MACRONIX,
-		dev_id: MX29F004T,
-		name: "Macronix MX29F004T",
-		DevSize: SIZE_512KiB,
-		CmdSet: P_ID_AMD_STD,
-		NumEraseRegions: 4,
-		regions: {ERASEINFO(0x10000,7),
-			  ERASEINFO(0x08000,1),
-			  ERASEINFO(0x02000,2),
-			  ERASEINFO(0x04000,1),
+		.mfr_id		= MANUFACTURER_SST,
+		.dev_id		= SST39LF512,
+		.name		= "SST 39LF512",
+ 		.uaddr		= {
+			[0] = MTD_UADDR_0x5555_0x2AAA /* x8 */
+		},
+		.DevSize	= SIZE_64KiB,
+		.CmdSet		= P_ID_AMD_STD,
+		.NumEraseRegions= 1,
+		.regions	= {
+			ERASEINFO(0x01000,16),
 		}
         }, {
-		mfr_id: MANUFACTURER_MACRONIX,
-		dev_id: MX29F004B,
-		name: "Macronix MX29F004B",
-		DevSize: SIZE_512KiB,
-		CmdSet: P_ID_AMD_STD,
-		NumEraseRegions: 4,
-		regions: {ERASEINFO(0x04000,1),
-			  ERASEINFO(0x02000,2),
-			  ERASEINFO(0x08000,1),
-			  ERASEINFO(0x10000,7),
+		.mfr_id		= MANUFACTURER_SST,
+		.dev_id		= SST39LF010,
+		.name		= "SST 39LF010",
+ 		.uaddr		= {
+			[0] = MTD_UADDR_0x5555_0x2AAA /* x8 */
+		},
+		.DevSize	= SIZE_128KiB,
+		.CmdSet		= P_ID_AMD_STD,
+		.NumEraseRegions= 1,
+		.regions	= {
+			ERASEINFO(0x01000,32),
 		}
         }, {
-		mfr_id: MANUFACTURER_SST,
-		dev_id: SST39LF512,
-		name: "SST 39LF512",
-		DevSize: SIZE_64KiB,
-		CmdSet: P_ID_AMD_STD,
-		NumEraseRegions: 1,
-		regions: {ERASEINFO(0x01000,16),
+		.mfr_id		= MANUFACTURER_SST,
+		.dev_id		= SST39LF020,
+		.name		= "SST 39LF020",
+ 		.uaddr		= {
+			[0] = MTD_UADDR_0x5555_0x2AAA /* x8 */
+		},
+		.DevSize	= SIZE_256KiB,
+		.CmdSet		= P_ID_AMD_STD,
+		.NumEraseRegions= 1,
+		.regions	= {
+			ERASEINFO(0x01000,64),
 		}
         }, {
-		mfr_id: MANUFACTURER_SST,
-		dev_id: SST39LF010,
-		name: "SST 39LF010",
-		DevSize: SIZE_128KiB,
-		CmdSet: P_ID_AMD_STD,
-		NumEraseRegions: 1,
-		regions: {ERASEINFO(0x01000,32),
+		.mfr_id		= MANUFACTURER_SST,
+		.dev_id		= SST39LF040,
+		.name		= "SST 39LF040",
+ 		.uaddr		= {
+			[0] = MTD_UADDR_0x5555_0x2AAA /* x8 */
+		},
+		.DevSize	= SIZE_512KiB,
+		.CmdSet		= P_ID_AMD_STD,
+		.NumEraseRegions= 1,
+		.regions	= {
+			ERASEINFO(0x01000,128),
 		}
         }, {
-		mfr_id: MANUFACTURER_SST,
-		dev_id: SST39LF020,
-		name: "SST 39LF020",
-		DevSize: SIZE_256KiB,
-		CmdSet: P_ID_AMD_STD,
-		NumEraseRegions: 1,
-		regions: {ERASEINFO(0x01000,64),
+		.mfr_id		= MANUFACTURER_SST,
+		.dev_id		= SST39SF010A,
+		.name		= "SST 39SF010A",
+ 		.uaddr		= {
+			[0] = MTD_UADDR_0x5555_0x2AAA /* x8 */
+		},
+		.DevSize	= SIZE_128KiB,
+		.CmdSet		= P_ID_AMD_STD,
+		.NumEraseRegions= 1,
+		.regions	= {
+			ERASEINFO(0x01000,32),
 		}
         }, {
-		mfr_id: MANUFACTURER_SST,
-		dev_id: SST39LF040,
-		name: "SST 39LF040",
-		DevSize: SIZE_512KiB,
-		CmdSet: P_ID_AMD_STD,
-		NumEraseRegions: 1,
-		regions: {ERASEINFO(0x01000,128),
-		}
-        }, {
-		mfr_id: MANUFACTURER_SST,
-		dev_id: SST39SF010A,
-		name: "SST 39SF010A",
-		DevSize: SIZE_128KiB,
-		CmdSet: P_ID_AMD_STD,
-		NumEraseRegions: 1,
-		regions: {ERASEINFO(0x01000,32),
-		}
-        }, {
-		mfr_id: MANUFACTURER_SST,
-		dev_id: SST39SF020A,
-		name: "SST 39SF020A",
-		DevSize: SIZE_256KiB,
-		CmdSet: P_ID_AMD_STD,
-		NumEraseRegions: 1,
-		regions: {ERASEINFO(0x01000,64),
+		.mfr_id		= MANUFACTURER_SST,
+		.dev_id		= SST39SF020A,
+		.name		= "SST 39SF020A",
+ 		.uaddr		= {
+			[0] = MTD_UADDR_0x5555_0x2AAA /* x8 */
+		},
+		.DevSize	= SIZE_256KiB,
+		.CmdSet		= P_ID_AMD_STD,
+		.NumEraseRegions= 1,
+		.regions	= {
+			ERASEINFO(0x01000,64),
 		}
 	}, {
-		mfr_id: MANUFACTURER_SST,
-		dev_id: SST49LF030A,
-		name: "SST 49LF030A",
-		DevSize: SIZE_512KiB,
-		CmdSet: P_ID_AMD_STD,
-		NumEraseRegions: 1,
-		regions: {ERASEINFO(0x01000,96),
+		.mfr_id		= MANUFACTURER_SST,
+		.dev_id		= SST49LF004B,
+		.name		= "SST 49LF004B",
+ 		.uaddr		= {
+			[0] = MTD_UADDR_0x5555_0x2AAA /* x8 */
+		},
+		.DevSize	= SIZE_512KiB,
+		.CmdSet		= P_ID_AMD_STD,
+		.NumEraseRegions= 1,
+		.regions	= {
+			ERASEINFO(0x01000,128),
 		}
 	}, {
-		mfr_id: MANUFACTURER_SST,
-		dev_id: SST49LF040A,
-		name: "SST 49LF040A",
-		DevSize: SIZE_512KiB,
-		CmdSet: P_ID_AMD_STD,
-		NumEraseRegions: 1,
-		regions: {ERASEINFO(0x01000,128),
+		.mfr_id		= MANUFACTURER_SST,
+		.dev_id		= SST49LF030A,
+		.name		= "SST 49LF030A",
+ 		.uaddr		= {
+			[0] = MTD_UADDR_0x5555_0x2AAA /* x8 */
+		},
+		.DevSize	= SIZE_512KiB,
+		.CmdSet		= P_ID_AMD_STD,
+		.NumEraseRegions= 1,
+		.regions	= {
+			ERASEINFO(0x01000,96),
 		}
 	}, {
-		mfr_id: MANUFACTURER_SST,
-		dev_id: SST49LF080A,
-		name: "SST 49LF080A",
-		DevSize: SIZE_1MiB,
-		CmdSet: P_ID_AMD_STD,
-		NumEraseRegions: 1,
-		regions: {ERASEINFO(0x01000,256),
+		.mfr_id		= MANUFACTURER_SST,
+		.dev_id		= SST49LF040A,
+		.name		= "SST 49LF040A",
+ 		.uaddr		= {
+			[0] = MTD_UADDR_0x5555_0x2AAA /* x8 */
+		},
+		.DevSize	= SIZE_512KiB,
+		.CmdSet		= P_ID_AMD_STD,
+		.NumEraseRegions= 1,
+		.regions	= {
+			ERASEINFO(0x01000,128),
+		}
+	}, {
+		.mfr_id		= MANUFACTURER_SST,
+		.dev_id		= SST49LF080A,
+		.name		= "SST 49LF080A",
+ 		.uaddr		= {
+			[0] = MTD_UADDR_0x5555_0x2AAA /* x8 */
+		},
+		.DevSize	= SIZE_1MiB,
+		.CmdSet		= P_ID_AMD_STD,
+		.NumEraseRegions= 1,
+		.regions	= {
+			ERASEINFO(0x01000,256),
+		}
+	}, {
+		.mfr_id		= MANUFACTURER_ST,	/* FIXME - CFI device? */
+		.dev_id		= M29W800DT,
+		.name		= "ST M29W800DT",
+ 		.uaddr		= {
+			[0] = MTD_UADDR_0x5555_0x2AAA,  /* x8 */
+			[1] = MTD_UADDR_0x5555_0x2AAA   /* x16 */
+		},
+		.DevSize	= SIZE_1MiB,
+		.CmdSet		= P_ID_AMD_STD,
+		.NumEraseRegions= 4,
+		.regions	= {
+			ERASEINFO(0x10000,15),
+			ERASEINFO(0x08000,1),
+			ERASEINFO(0x02000,2),
+			ERASEINFO(0x04000,1)
+		}
+	}, {
+		.mfr_id		= MANUFACTURER_ST,	/* FIXME - CFI device? */
+		.dev_id		= M29W800DB,
+		.name		= "ST M29W800DB",
+ 		.uaddr		= {
+			[0] = MTD_UADDR_0x5555_0x2AAA,  /* x8 */
+			[1] = MTD_UADDR_0x5555_0x2AAA   /* x16 */
+		},
+		.DevSize	= SIZE_1MiB,
+		.CmdSet		= P_ID_AMD_STD,
+		.NumEraseRegions= 4,
+		.regions	= {
+			ERASEINFO(0x04000,1),
+			ERASEINFO(0x02000,2),
+			ERASEINFO(0x08000,1),
+			ERASEINFO(0x10000,15)
+		}
+	}, {
+		.mfr_id		= MANUFACTURER_ST,	/* FIXME - CFI device? */
+		.dev_id		= M29W160DT,
+		.name		= "ST M29W160DT",
+		.uaddr		= {
+			[0] = MTD_UADDR_0x0555_0x02AA,  /* x8 */
+			[1] = MTD_UADDR_0x0555_0x02AA,  /* x16 */
+		},
+		.DevSize	= SIZE_2MiB,
+		.CmdSet		= P_ID_AMD_STD,
+		.NumEraseRegions= 4,
+		.regions	= {
+			ERASEINFO(0x10000,31),
+			ERASEINFO(0x08000,1),
+			ERASEINFO(0x02000,2),
+			ERASEINFO(0x04000,1)
+		}
+	}, {
+		.mfr_id		= MANUFACTURER_ST,	/* FIXME - CFI device? */
+		.dev_id		= M29W160DB,
+		.name		= "ST M29W160DB",
+		.uaddr		= {
+			[0] = MTD_UADDR_0x0555_0x02AA,  /* x8 */
+			[1] = MTD_UADDR_0x0555_0x02AA,  /* x16 */
+		},
+		.DevSize	= SIZE_2MiB,
+		.CmdSet		= P_ID_AMD_STD,
+		.NumEraseRegions= 4,
+		.regions	= {
+			ERASEINFO(0x04000,1),
+			ERASEINFO(0x02000,2),
+			ERASEINFO(0x08000,1),
+			ERASEINFO(0x10000,31)
+		}
+        }, {
+		.mfr_id		= MANUFACTURER_ST,	/* FIXME - CFI device? */
+		.dev_id		= M29W320DB,
+		.name		= "ST M29W320DB",
+		.uaddr		= {
+			[0] = MTD_UADDR_0x0AAA_0x0555,  /* x8 */
+			[1] = MTD_UADDR_0x0555_0x02AA,  /* x16 */
+		},
+		.DevSize	= SIZE_4MiB,
+		.CmdSet		= P_ID_AMD_STD,
+		.NumEraseRegions= 4,
+		.regions	= {
+			ERASEINFO(0x04000,1),
+			ERASEINFO(0x02000,2),
+			ERASEINFO(0x08000,1),
+			ERASEINFO(0x10000,63)
+		}
+        }, {
+		.mfr_id		= MANUFACTURER_ST,
+		.dev_id		= M29W040B,
+		.name		= "ST M29W040B",
+		.uaddr		= {
+			[0] = MTD_UADDR_0x0555_0x02AA /* x8 */
+		},
+		.DevSize	= SIZE_512KiB,
+		.CmdSet		= P_ID_AMD_STD,
+		.NumEraseRegions= 1,
+		.regions	= {
+			ERASEINFO(0x10000,8),
+		}
+	}, {
+		.mfr_id		= MANUFACTURER_TOSHIBA,
+		.dev_id		= TC58FVT160,
+		.name		= "Toshiba TC58FVT160",
+		.uaddr		= {
+			[0] = MTD_UADDR_0x0AAA_0x0555, /* x8 */
+			[1] = MTD_UADDR_0x0555_0x02AA  /* x16 */
+		},
+		.DevSize	= SIZE_2MiB,
+		.CmdSet		= P_ID_AMD_STD,
+		.NumEraseRegions= 4,
+		.regions	= {
+			ERASEINFO(0x10000,31),
+			ERASEINFO(0x08000,1),
+			ERASEINFO(0x02000,2),
+			ERASEINFO(0x04000,1)
+		}
+	}, {
+		.mfr_id		= MANUFACTURER_TOSHIBA,
+		.dev_id		= TC58FVB160,
+		.name		= "Toshiba TC58FVB160",
+		.uaddr		= {
+			[0] = MTD_UADDR_0x0AAA_0x0555, /* x8 */
+			[1] = MTD_UADDR_0x0555_0x02AA  /* x16 */
+		},
+		.DevSize	= SIZE_2MiB,
+		.CmdSet		= P_ID_AMD_STD,
+		.NumEraseRegions= 4,
+		.regions	= {
+			ERASEINFO(0x04000,1),
+			ERASEINFO(0x02000,2),
+			ERASEINFO(0x08000,1),
+			ERASEINFO(0x10000,31)
+		}
+	}, {
+		.mfr_id		= MANUFACTURER_TOSHIBA,
+		.dev_id		= TC58FVB321,
+		.name		= "Toshiba TC58FVB321",
+		.uaddr		= {
+			[0] = MTD_UADDR_0x0AAA_0x0555, /* x8 */
+			[1] = MTD_UADDR_0x0555_0x02AA  /* x16 */
+		},
+		.DevSize	= SIZE_4MiB,
+		.CmdSet		= P_ID_AMD_STD,
+		.NumEraseRegions= 2,
+		.regions	= {
+			ERASEINFO(0x02000,8),
+			ERASEINFO(0x10000,63)
+		}
+	}, {
+		.mfr_id		= MANUFACTURER_TOSHIBA,
+		.dev_id		= TC58FVT321,
+		.name		= "Toshiba TC58FVT321",
+		.uaddr		= {
+			[0] = MTD_UADDR_0x0AAA_0x0555, /* x8 */
+			[1] = MTD_UADDR_0x0555_0x02AA  /* x16 */
+		},
+		.DevSize	= SIZE_4MiB,
+		.CmdSet		= P_ID_AMD_STD,
+		.NumEraseRegions= 2,
+		.regions	= {
+			ERASEINFO(0x10000,63),
+			ERASEINFO(0x02000,8)
+		}
+	}, {
+		.mfr_id		= MANUFACTURER_TOSHIBA,
+		.dev_id		= TC58FVB641,
+		.name		= "Toshiba TC58FVB641",
+		.uaddr		= {
+			[0] = MTD_UADDR_0x0AAA_0x0555, /* x8 */
+			[1] = MTD_UADDR_0x0555_0x02AA, /* x16 */
+		},
+		.DevSize	= SIZE_8MiB,
+		.CmdSet		= P_ID_AMD_STD,
+		.NumEraseRegions= 2,
+		.regions	= {
+			ERASEINFO(0x02000,8),
+			ERASEINFO(0x10000,127)
+		}
+	}, {
+		.mfr_id		= MANUFACTURER_TOSHIBA,
+		.dev_id		= TC58FVT641,
+		.name		= "Toshiba TC58FVT641",
+		.uaddr		= {
+			[0] = MTD_UADDR_0x0AAA_0x0555, /* x8 */
+			[1] = MTD_UADDR_0x0555_0x02AA, /* x16 */
+		},
+		.DevSize	= SIZE_8MiB,
+		.CmdSet		= P_ID_AMD_STD,
+		.NumEraseRegions= 2,
+		.regions	= {
+			ERASEINFO(0x10000,127),
+			ERASEINFO(0x02000,8)
+		}
+	}, {
+		.mfr_id		= MANUFACTURER_WINBOND,
+		.dev_id		= W49V002A,
+		.name		= "Winbond W49V002A",
+		.uaddr		= {
+			[0] = MTD_UADDR_0x5555_0x2AAA /* x8 */
+		},
+		.DevSize	= SIZE_256KiB,
+		.CmdSet		= P_ID_AMD_STD,
+		.NumEraseRegions= 4,
+		.regions	= {
+			ERASEINFO(0x10000, 3),
+			ERASEINFO(0x08000, 1),
+			ERASEINFO(0x02000, 2),
+			ERASEINFO(0x04000, 1),
 		}
 	} 
 };
@@ -944,11 +1473,36 @@ static inline void jedec_reset(u32 base, struct map_info *map,
 	 * this should be safe.
 	 */ 
 	cfi_send_gen_cmd(0xFF, 0, base, map, cfi, cfi->device_type, NULL);
-
+	/* FIXME - should have reset delay before continuing */
 }
+
+
+static inline __u8 finfo_uaddr(const struct amd_flash_info *finfo, int device_type)
+{
+	int uaddr_idx;
+	__u8 uaddr = MTD_UADDR_NOT_SUPPORTED;
+
+	switch ( device_type ) {
+	case CFI_DEVICETYPE_X8:  uaddr_idx = 0; break;
+	case CFI_DEVICETYPE_X16: uaddr_idx = 1; break;
+	case CFI_DEVICETYPE_X32: uaddr_idx = 2; break;
+	default:
+		printk(KERN_NOTICE "MTD: %s(): unknown device_type %d\n",
+		       __func__, device_type);
+		goto uaddr_done;
+	}
+
+	uaddr = finfo->uaddr[uaddr_idx];
+
+ uaddr_done:
+	return uaddr;
+}
+
+
 static int cfi_jedec_setup(struct cfi_private *p_cfi, int index)
 {
 	int i,num_erase_regions;
+	__u8 uaddr;
 
 	printk("Found: %s\n",jedec_table[index].name);
 
@@ -971,41 +1525,161 @@ static int cfi_jedec_setup(struct cfi_private *p_cfi, int index)
 		p_cfi->cfiq->EraseRegionInfo[i] = jedec_table[index].regions[i];
 	}
 	p_cfi->cmdset_priv = 0;
+
+	/* This may be redundant for some cases, but it doesn't hurt */
+	p_cfi->mfr = jedec_table[index].mfr_id;
+	p_cfi->id = jedec_table[index].dev_id;
+
+	uaddr = finfo_uaddr(&jedec_table[index], p_cfi->device_type);
+	if ( MTD_UADDR_NOT_SUPPORTED ) {
+		kfree( p_cfi->cfiq );
+		return 0;
+	}
+	p_cfi->addr_unlock1 = unlock_addrs[uaddr].addr1;
+	p_cfi->addr_unlock2 = unlock_addrs[uaddr].addr2;
+
 	return 1; 	/* ok */
 }
+
+
+/*
+ * There is a BIG problem properly ID'ing the JEDEC devic and guaranteeing
+ * the mapped address, unlock addresses, and proper chip ID.  This function
+ * attempts to minimize errors.  It is doubtfull that this probe will ever
+ * be perfect - consequently there should be some module parameters that
+ * could be manually specified to force the chip info.
+ */
+static inline int jedec_match( __u32 base,
+			       struct map_info *map,
+			       struct cfi_private *cfi,
+			       const struct amd_flash_info *finfo )
+{
+	int rc = 0;           /* failure until all tests pass */
+	u32 mfr, id;
+	__u8 uaddr;
+
+	/*
+	 * The IDs must match.  For X16 and X32 devices operating in
+	 * a lower width ( X8 or X16 ), the device ID's are usually just
+	 * the lower byte(s) of the larger device ID for wider mode.  If
+	 * a part is found that doesn't fit this assumption (device id for
+	 * smaller width mode is completely unrealated to full-width mode)
+	 * then the jedec_table[] will have to be augmented with the IDs
+	 * for different widths.
+	 */
+	switch (cfi->device_type) {
+	case CFI_DEVICETYPE_X8:
+		mfr = (__u8)finfo->mfr_id;
+		id = (__u8)finfo->dev_id;
+		break;
+	case CFI_DEVICETYPE_X16:
+		mfr = (__u16)finfo->mfr_id;
+		id = (__u16)finfo->dev_id;
+		break;
+	case CFI_DEVICETYPE_X32:
+		mfr = (__u16)finfo->mfr_id;
+		id = (__u32)finfo->dev_id;
+		break;
+	default:
+		printk(KERN_WARNING
+		       "MTD %s(): Unsupported device type %d\n",
+		       __func__, cfi->device_type);
+		goto match_done;
+	}
+	if ( cfi->mfr != mfr || cfi->id != id ) {
+		goto match_done;
+	}
+
+	/* the part size must fit in the memory window */
+	DEBUG( MTD_DEBUG_LEVEL3,
+	       "MTD %s(): Check fit 0x%.8x + 0x%.8x = 0x%.8x\n",
+	       __func__, base, 1 << finfo->DevSize, base + (1 << finfo->DevSize) );
+	if ( base + cfi->interleave * ( 1 << finfo->DevSize ) > map->size ) {
+		DEBUG( MTD_DEBUG_LEVEL3,
+		       "MTD %s(): 0x%.4x 0x%.4x %dKiB doesn't fit\n",
+		       __func__, finfo->mfr_id, finfo->dev_id,
+		       1 << finfo->DevSize );
+		goto match_done;
+	}
+
+	uaddr = finfo_uaddr(finfo, cfi->device_type);
+	if ( MTD_UADDR_NOT_SUPPORTED ) {
+		goto match_done;
+	}
+
+	DEBUG( MTD_DEBUG_LEVEL3, "MTD %s(): check unlock addrs 0x%.4x 0x%.4x\n",
+	       __func__, cfi->addr_unlock1, cfi->addr_unlock2 );
+	if ( MTD_UADDR_UNNECESSARY != uaddr && MTD_UADDR_DONT_CARE != uaddr
+	     && ( unlock_addrs[uaddr].addr1 != cfi->addr_unlock1
+		  || unlock_addrs[uaddr].addr2 != cfi->addr_unlock2 ) ) {
+		DEBUG( MTD_DEBUG_LEVEL3,
+		       "MTD %s(): 0x%.4x 0x%.4x did not match\n",
+		       __func__,
+		       unlock_addrs[uaddr].addr1,
+		       unlock_addrs[uaddr].addr2 );
+		goto match_done;
+	}
+
+	/*
+	 * Make sure the ID's dissappear when the device is taken out of
+	 * ID mode.  The only time this should fail when it should succeed
+	 * is when the ID's are written as data to the same
+	 * addresses.  For this rare and unfortunate case the chip
+	 * cannot be probed correctly.
+	 * FIXME - write a driver that takes all of the chip info as
+	 * module parameters, doesn't probe but forces a load.
+	 */
+	DEBUG( MTD_DEBUG_LEVEL3,
+	       "MTD %s(): check ID's disappear when not in ID mode\n",
+	       __func__ );
+	jedec_reset( base, map, cfi );
+	mfr = jedec_read_mfr( map, base, cfi );
+	id = jedec_read_id( map, base, cfi );
+	if ( mfr == cfi->mfr && id == cfi->id ) {
+		DEBUG( MTD_DEBUG_LEVEL3,
+		       "MTD %s(): ID 0x%.2x:0x%.2x did not change after reset:\n"
+		       "You might need to manually specify JEDEC parameters.\n",
+			__func__, cfi->mfr, cfi->id );
+		goto match_done;
+	}
+
+	/* all tests passed - mark  as success */
+	rc = 1;
+
+	/*
+	 * Put the device back in ID mode - only need to do this if we
+	 * were truly frobbing a real device.
+	 */
+	DEBUG( MTD_DEBUG_LEVEL3, "MTD %s(): return to ID mode\n", __func__ );
+	if(cfi->addr_unlock1) {
+		cfi_send_gen_cmd(0xaa, cfi->addr_unlock1, base, map, cfi, cfi->device_type, NULL);
+		cfi_send_gen_cmd(0x55, cfi->addr_unlock2, base, map, cfi, cfi->device_type, NULL);
+	}
+	cfi_send_gen_cmd(0x90, cfi->addr_unlock1, base, map, cfi, cfi->device_type, NULL);
+	/* FIXME - should have a delay before continuing */
+
+ match_done:	
+	return rc;
+}
+
 
 static int jedec_probe_chip(struct map_info *map, __u32 base,
 			      struct flchip *chips, struct cfi_private *cfi)
 {
 	int i;
-	int unlockpass = 0;
-
-	if (!cfi->numchips) {
-		switch (cfi->device_type) {
-		case CFI_DEVICETYPE_X8:
-			cfi->addr_unlock1 = 0x555; 
-			cfi->addr_unlock2 = 0x2aa; 
-			break;
-		case CFI_DEVICETYPE_X16:
-			cfi->addr_unlock1 = 0xaaa;
-			if (map->buswidth == cfi->interleave) {
-				/* X16 chip(s) in X8 mode */
-				cfi->addr_unlock2 = 0x555;
-			} else {
-				cfi->addr_unlock2 = 0x554;
-			}
-			break;
-		case CFI_DEVICETYPE_X32:
-			cfi->addr_unlock1 = 0x1555; 
-			cfi->addr_unlock2 = 0xaaa; 
-			break;
-		default:
-			printk(KERN_NOTICE "Eep. Unknown jedec_probe device type %d\n", cfi->device_type);
-		return 0;
-		}
-	}
+	enum uaddr uaddr_idx = MTD_UADDR_NOT_SUPPORTED;
 
  retry:
+	if (!cfi->numchips) {
+		uaddr_idx++;
+
+		if (MTD_UADDR_UNNECESSARY == uaddr_idx)
+			return 0;
+
+		cfi->addr_unlock1 = unlock_addrs[uaddr_idx].addr1;
+		cfi->addr_unlock2 = unlock_addrs[uaddr_idx].addr2;
+	}
+
 	/* Make certain we aren't probing past the end of map */
 	if (base >= map->size) {
 		printk(KERN_NOTICE
@@ -1034,10 +1708,11 @@ static int jedec_probe_chip(struct map_info *map, __u32 base,
 
 	/* Autoselect Mode */
 	if(cfi->addr_unlock1) {
-		cfi_send_gen_cmd(0xaa, cfi->addr_unlock1, base, map, cfi, CFI_DEVICETYPE_X8, NULL);
-		cfi_send_gen_cmd(0x55, cfi->addr_unlock2, base, map, cfi, CFI_DEVICETYPE_X8, NULL);
+		cfi_send_gen_cmd(0xaa, cfi->addr_unlock1, base, map, cfi, cfi->device_type, NULL);
+		cfi_send_gen_cmd(0x55, cfi->addr_unlock2, base, map, cfi, cfi->device_type, NULL);
 	}
-	cfi_send_gen_cmd(0x90, cfi->addr_unlock1, base, map, cfi, CFI_DEVICETYPE_X8, NULL);
+	cfi_send_gen_cmd(0x90, cfi->addr_unlock1, base, map, cfi, cfi->device_type, NULL);
+	/* FIXME - should have a delay before continuing */
 
 	if (!cfi->numchips) {
 		/* This is the first time we're called. Set up the CFI 
@@ -1045,26 +1720,21 @@ static int jedec_probe_chip(struct map_info *map, __u32 base,
 		
 		cfi->mfr = jedec_read_mfr(map, base, cfi);
 		cfi->id = jedec_read_id(map, base, cfi);
-		printk(KERN_INFO "Search for id:(%02x %02x) interleave(%d) type(%d)\n", 
+		DEBUG(MTD_DEBUG_LEVEL3,
+		      "Search for id:(%02x %02x) interleave(%d) type(%d)\n", 
 			cfi->mfr, cfi->id, cfi->interleave, cfi->device_type);
 		for (i=0; i<sizeof(jedec_table)/sizeof(jedec_table[0]); i++) {
-			if (cfi->mfr == jedec_table[i].mfr_id &&
-			    cfi->id == jedec_table[i].dev_id) {
+			if ( jedec_match( base, map, cfi, &jedec_table[i] ) ) {
+				DEBUG( MTD_DEBUG_LEVEL3,
+				       "MTD %s(): matched device 0x%x,0x%x unlock_addrs: 0x%.4x 0x%.4x\n",
+				       __func__, cfi->mfr, cfi->id,
+				       cfi->addr_unlock1, cfi->addr_unlock2 );
 				if (!cfi_jedec_setup(cfi, i))
 					return 0;
 				goto ok_out;
 			}
 		}
-		switch(unlockpass++) {
-		case 0:
-			cfi->addr_unlock1 |= cfi->addr_unlock1 << 4;
-			cfi->addr_unlock2 |= cfi->addr_unlock2 << 4;
-			goto retry;
-		case 1:
-			cfi->addr_unlock1 = cfi->addr_unlock2 = 0;
-			goto retry;
-		}
-		return 0;
+		goto retry;
 	} else {
 		__u16 mfr;
 		__u16 id;
@@ -1136,8 +1806,8 @@ ok_out:
 }
 
 static struct chip_probe jedec_chip_probe = {
-	name: "JEDEC",
-	probe_chip: jedec_probe_chip
+	.name = "JEDEC",
+	.probe_chip = jedec_probe_chip
 };
 
 struct mtd_info *jedec_probe(struct map_info *map)
@@ -1150,9 +1820,9 @@ struct mtd_info *jedec_probe(struct map_info *map)
 }
 
 static struct mtd_chip_driver jedec_chipdrv = {
-	probe: jedec_probe,
-	name: "jedec_probe",
-	module: THIS_MODULE
+	.probe	= jedec_probe,
+	.name	= "jedec_probe",
+	.module	= THIS_MODULE
 };
 
 int __init jedec_probe_init(void)

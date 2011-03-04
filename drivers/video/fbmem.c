@@ -61,7 +61,9 @@ extern int pm2fb_init(void);
 extern int pm2fb_setup(char*);
 extern int pm3fb_init(void);
 extern int pm3fb_setup(char*);
+extern int clps711xfb_init(void);
 extern int cyber2000fb_init(void);
+extern int cyber2000fb_setup(char*);
 extern int retz3fb_init(void);
 extern int retz3fb_setup(char*);
 extern int clgenfb_init(void);
@@ -145,6 +147,10 @@ extern int sstfb_init(void);
 extern int sstfb_setup(char*);
 extern int it8181fb_init(void);
 extern int it8181fb_setup(char*);
+extern int anakinfb_init(void);
+extern int dbmx1fb_init(void);
+extern int rubyfb_init(void);
+extern int rubyfb_setup(char *);
 
 static struct {
 	const char *name;
@@ -170,11 +176,14 @@ static struct {
 #ifdef CONFIG_FB_AMIGA
 	{ "amifb", amifb_init, amifb_setup },
 #endif
+#ifdef CONFIG_FB_CLPS711X
+	{ "clps711xfb", clps711xfb_init, NULL },
+#endif
 #ifdef CONFIG_FB_CYBER
 	{ "cyber", cyberfb_init, cyberfb_setup },
 #endif
 #ifdef CONFIG_FB_CYBER2000
-	{ "cyber2000", cyber2000fb_init, NULL },
+	{ "cyber2000", cyber2000fb_init, cyber2000fb_setup },
 #endif
 #ifdef CONFIG_FB_PM2
 	{ "pm2fb", pm2fb_init, pm2fb_setup },
@@ -226,10 +235,10 @@ static struct {
 #endif
 #ifdef CONFIG_FB_S3TRIO
 	{ "s3trio", s3triofb_init, NULL },
-#endif 
+#endif
 #ifdef CONFIG_FB_FM2
 	{ "fm2fb", fm2fb_init, fm2fb_setup },
-#endif 
+#endif
 #ifdef CONFIG_FB_SIS
 	{ "sisfb", sisfb_init, sisfb_setup },
 #endif
@@ -242,7 +251,7 @@ static struct {
 
 	/*
 	 * Generic drivers that are used as fallbacks
-	 * 
+	 *
 	 * These depend on resource management and must be initialized
 	 * _after_ all other frame buffer devices that use resource
 	 * management!
@@ -253,7 +262,7 @@ static struct {
 #endif
 #ifdef CONFIG_FB_VESA
 	{ "vesa", vesafb_init, vesafb_setup },
-#endif 
+#endif
 
 	/*
 	 * Chipset specific drivers that don't use resource management (yet)
@@ -276,7 +285,7 @@ static struct {
 #endif
 #ifdef CONFIG_FB_HGA
 	{ "hga", hgafb_init, hgafb_setup },
-#endif 
+#endif
 #ifdef CONFIG_FB_IGA
 	{ "igafb", igafb_init, igafb_setup },
 #endif
@@ -291,7 +300,7 @@ static struct {
 #endif
 #ifdef CONFIG_FB_HP300
 	{ "hpfb", hpfb_init, NULL },
-#endif 
+#endif
 #ifdef CONFIG_FB_G364
 	{ "g364", g364fb_init, NULL },
 #endif
@@ -306,6 +315,9 @@ static struct {
 #endif
 #ifdef CONFIG_FB_TX3912
 	{ "tx3912", tx3912fb_init, NULL },
+#endif
+#ifdef CONFIG_FB_ANAKIN
+	{ "anakinfb", anakinfb_init, NULL },
 #endif
 #ifdef CONFIG_FB_E1355
 	{ "e1355fb", e1355fb_init, e1355fb_setup },
@@ -330,9 +342,12 @@ static struct {
 #endif
 #ifdef CONFIG_FB_AU1100
 	{ "au1100fb", au1100fb_init, au1100fb_setup },
-#endif 
+#endif
 #ifdef CONFIG_FB_IT8181
 	{ "it8181fb", it8181fb_init, it8181fb_setup },
+#endif
+#ifdef CONFIG_FB_DBMX1
+	{ "dbmx1fb", dbmx1fb_init, NULL },
 #endif
 
 
@@ -342,7 +357,7 @@ static struct {
 
 #ifdef CONFIG_FB_VGA16
 	{ "vga16", vga16fb_init, vga16fb_setup },
-#endif 
+#endif
 #ifdef CONFIG_FB_STI
 	{ "stifb", stifb_init, stifb_setup },
 #endif
@@ -350,6 +365,10 @@ static struct {
 #ifdef CONFIG_GSP_RESOLVER
 	/* Not a real frame buffer device... */
 	{ "resolver", NULL, resolver_video_setup },
+#endif
+
+#ifdef CONFIG_FB_RUBY
+	{ "ruby", rubyfb_init, rubyfb_setup },
 #endif
 
 #ifdef CONFIG_FB_VIRTUAL
@@ -371,7 +390,7 @@ static int num_pref_init_funcs __initdata = 0;
 
 struct fb_info *registered_fb[FB_MAX];
 int num_registered_fb;
-extern int fbcon_softback_size; 
+extern int fbcon_softback_size;
 
 static int first_fb_vc;
 static int last_fb_vc = MAX_NR_CONSOLES-1;
@@ -482,7 +501,7 @@ static void try_to_load(int fb)
 }
 #endif /* CONFIG_KMOD */
 
-static int 
+static int
 fb_ioctl(struct inode *inode, struct file *file, unsigned int cmd,
 	 unsigned long arg)
 {
@@ -494,7 +513,7 @@ fb_ioctl(struct inode *inode, struct file *file, unsigned int cmd,
 	struct fb_fix_screeninfo fix;
 	struct fb_con2fbmap con2fb;
 	int i;
-	
+
 	if (! fb)
 		return -ENODEV;
 	switch (cmd) {
@@ -578,7 +597,7 @@ fb_ioctl(struct inode *inode, struct file *file, unsigned int cmd,
 	}
 }
 
-static int 
+static int
 fb_mmap(struct file *file, struct vm_area_struct * vma)
 {
 	int fbidx = GET_FB_IDX(file->f_dentry->d_inode->i_rdev);
@@ -669,11 +688,11 @@ fb_mmap(struct file *file, struct vm_area_struct * vma)
 #elif defined(__sh__)
 	pgprot_val(vma->vm_page_prot) &= ~_PAGE_CACHABLE;
 #elif defined(__hppa__)
-	pgprot_val(vma->vm_page_prot) |= _PAGE_NO_CACHE; 
+	pgprot_val(vma->vm_page_prot) |= _PAGE_NO_CACHE;
 #elif defined(__ia64__)
 	vma->vm_page_prot = pgprot_writecombine(vma->vm_page_prot);
 #elif defined(__hppa__)
-	pgprot_val(vma->vm_page_prot) |= _PAGE_NO_CACHE; 
+	pgprot_val(vma->vm_page_prot) |= _PAGE_NO_CACHE;
 #else
 #warning What do we have to do here??
 #endif
@@ -726,7 +745,7 @@ fb_open(struct inode *inode, struct file *file)
 	return res;
 }
 
-static int 
+static int
 fb_release(struct inode *inode, struct file *file)
 {
 	int fbidx = GET_FB_IDX(inode->i_rdev);
@@ -858,7 +877,7 @@ unregister_framebuffer(struct fb_info *fb_info)
  *
  */
 
-void __init 
+void __init
 fbmem_init(void)
 {
 	int i;
@@ -906,7 +925,7 @@ int __init video_setup(char *options)
 
     if (!options || !*options)
 	    return 0;
-	    
+
     if (!strncmp(options, "scrollback:", 11)) {
 	    options += 11;
 	    if (*options) {
@@ -932,7 +951,7 @@ int __init video_setup(char *options)
 		    }
 	    return 0;
     }
-    
+
     if (!strncmp(options, "vc:", 3)) {
 	    options += 3;
 	    if (*options)

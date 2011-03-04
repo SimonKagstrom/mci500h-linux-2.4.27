@@ -68,7 +68,8 @@ static struct fb_var_screeninfo vfb_default = {
     0, FB_VMODE_NONINTERLACED
 };
 
-static int vfb_enable = 0;	/* disabled by default */
+//static int vfb_enable = 0;	/* disabled by default */
+static int vfb_enable = 1;	/* enabled by default, wink 2007/02/08 shouldn't be necessary if vfb_setup is called before vfb_init? */
 
 
     /*
@@ -511,6 +512,7 @@ static void set_color_bitfields(struct fb_var_screeninfo *var)
 	    var->transp.length = 0;
 	    break;
 	case 16:	/* RGB 565 */
+#if 0
 	    var->red.offset = 0;
 	    var->red.length = 5;
 	    var->green.offset = 5;
@@ -519,6 +521,17 @@ static void set_color_bitfields(struct fb_var_screeninfo *var)
 	    var->blue.length = 5;
 	    var->transp.offset = 0;
 	    var->transp.length = 0;
+#else
+	    /* DirectFB expects these */
+	    var->red.offset = 11;
+	    var->red.length = 5;
+	    var->green.offset = 5;
+	    var->green.length = 6;
+	    var->blue.offset = 0;
+	    var->blue.length = 5;
+	    var->transp.offset = 0;
+	    var->transp.length = 0;
+#endif
 	    break;
 	case 24:	/* RGB 888 */
 	    var->red.offset = 0;

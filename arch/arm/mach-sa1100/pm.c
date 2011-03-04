@@ -21,6 +21,8 @@
  *
  * 2002-05-27:	Nicolas Pitre	Killed sleep.h and the kmalloced save array.
  * 				Storage is local on the stack now.
+ * 2003-06-25:  Jeff Corrall <jcorrall@mac.com>
+ *			Saved the GPIO levels for resume after sleep.
  */
 #include <linux/config.h>
 #include <linux/init.h>
@@ -70,13 +72,20 @@ enum {	SLEEP_SAVE_START = 0,
 int pm_do_suspend(void)
 {
 	unsigned long sleep_save[SLEEP_SAVE_SIZE];
+	unsigned long sleep_save_gpsr;
+	unsigned long sleep_save_gpcr;
+	unsigned long delta;
 
 	cli();
 
 	leds_event(led_stop);
 
 	/* preserve current time */
-	RCNR = xtime.tv_sec;
+	delta = xtime.tv_sec - RCNR;
+
+	/* save the current state of the GPIO output pins */
+	sleep_save_gpsr = GPDR & GPLR;
+	sleep_save_gpcr = GPDR & ~GPLR;
 
 	/* save vital registers */
 	SAVE(OSCR);
@@ -121,6 +130,10 @@ int pm_do_suspend(void)
 	printk(KERN_DEBUG "*** made it back from resume\n");
 #endif
 
+	/* restore GPIO output state before enabling the pins */
+	GPSR = sleep_save_gpsr;
+	GPCR = sleep_save_gpcr;
+
 	/* restore registers */
 	RESTORE(GPDR);
 	RESTORE(GRER);
@@ -151,7 +164,7 @@ int pm_do_suspend(void)
 	RESTORE(ICMR);
 
 	/* restore current time */
-	xtime.tv_sec = RCNR;
+	xtime.tv_sec = RCNR + delta;
 
 	leds_event(led_start);
 

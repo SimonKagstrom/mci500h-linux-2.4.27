@@ -121,7 +121,7 @@ void init_timervecs (void)
 
 static unsigned long timer_jiffies;
 
-static inline void internal_add_timer(struct timer_list *timer)
+static void internal_add_timer(struct timer_list *timer)
 {
 	/*
 	 * must be cli-ed when calling this

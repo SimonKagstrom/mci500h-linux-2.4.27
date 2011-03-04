@@ -77,8 +77,13 @@ mem_map_t * mem_map;
  */
 void __free_pte(pte_t pte)
 {
-	struct page *page = pte_page(pte);
-	if ((!VALID_PAGE(page)) || PageReserved(page))
+	unsigned long pfn = pte_pfn(pte);
+	struct page *page;
+
+	if (!pfn_valid(pfn))
+		return;
+	page = pfn_to_page(pfn);
+	if (PageReserved(page))
 		return;
 	if (pte_dirty(pte))
 		set_page_dirty(page);		
@@ -232,6 +237,7 @@ skip_copy_pte_range:		address = (address + PMD_SIZE) & PMD_MASK;
 			do {
 				pte_t pte = *src_pte;
 				struct page *ptepage;
+				unsigned long pfn;
 				
 				/* copy_one_pte */
 
@@ -241,9 +247,11 @@ skip_copy_pte_range:		address = (address + PMD_SIZE) & PMD_MASK;
 					swap_duplicate(pte_to_swp_entry(pte));
 					goto cont_copy_pte_range;
 				}
-				ptepage = pte_page(pte);
-				if ((!VALID_PAGE(ptepage)) || 
-				    PageReserved(ptepage))
+				pfn = pte_pfn(pte);
+				if (!pfn_valid(pfn))
+					goto cont_copy_pte_range;
+				ptepage = pfn_to_page(pfn);
+				if (PageReserved(ptepage))
 					goto cont_copy_pte_range;
 
 				/* If it's a COW mapping, write protect it both in the parent and the child */
@@ -314,9 +322,13 @@ static inline int zap_pte_range(mmu_gather_t *tlb, pmd_t * pmd, unsigned long ad
 		if (pte_none(pte))
 			continue;
 		if (pte_present(pte)) {
-			struct page *page = pte_page(pte);
-			if (VALID_PAGE(page) && !PageReserved(page))
-				freed ++;
+			unsigned long pfn = pte_pfn(pte);
+
+			if (pfn_valid(pfn)) {
+				struct page *page = pfn_to_page(pfn);
+				if (!PageReserved(page))
+					freed ++;
+			}
 			/* This will eventually call __free_pte on the pte. */
 			tlb_remove_page(tlb, ptep, address + offset);
 		} else {
@@ -354,17 +366,37 @@ static inline int zap_pmd_range(mmu_gather_t *tlb, pgd_t * dir, unsigned long ad
 	return freed;
 }
 
+void unmap_page_range(mmu_gather_t *tlb, struct mm_struct *mm, unsigned long address, unsigned long end)
+{
+	int freed = 0;
+	pgd_t * dir;
+
+	if (address >= end)
+		BUG();
+	dir = pgd_offset(mm, address);
+	do {
+		freed += zap_pmd_range(tlb, dir, address, end - address);
+		address = (address + PGDIR_SIZE) & PGDIR_MASK;
+		dir++;
+	} while (address && (address < end));
+
+	/*
+	 * Update rss for the mm_struct (not necessarily current->mm)
+	 * Notice that rss is an unsigned long.
+	 */
+	if (mm->rss > freed)
+		mm->rss -= freed;
+	else
+		mm->rss = 0;
+}
+
 /*
  * remove user pages in a given range.
  */
 void zap_page_range(struct mm_struct *mm, unsigned long address, unsigned long size)
 {
-	mmu_gather_t *tlb;
-	pgd_t * dir;
 	unsigned long start = address, end = address + size;
-	int freed = 0;
-
-	dir = pgd_offset(mm, address);
+	mmu_gather_t *tlb;
 
 	/*
 	 * This is a long-lived spinlock. That's fine.
@@ -377,25 +409,10 @@ void zap_page_range(struct mm_struct *mm, unsigned long address, unsigned long s
 		BUG();
 	spin_lock(&mm->page_table_lock);
 	flush_cache_range(mm, address, end);
+
 	tlb = tlb_gather_mmu(mm);
-
-	do {
-		freed += zap_pmd_range(tlb, dir, address, end - address);
-		address = (address + PGDIR_SIZE) & PGDIR_MASK;
-		dir++;
-	} while (address && (address < end));
-
-	/* this will flush any remaining tlb entries */
+	unmap_page_range(tlb, mm, address, end);
 	tlb_finish_mmu(tlb, start, end);
-
-	/*
-	 * Update rss for the mm_struct (not necessarily current->mm)
-	 * Notice that rss is an unsigned long.
-	 */
-	if (mm->rss > freed)
-		mm->rss -= freed;
-	else
-		mm->rss = 0;
 	spin_unlock(&mm->page_table_lock);
 }
 
@@ -407,6 +424,7 @@ static struct page * follow_page(struct mm_struct *mm, unsigned long address, in
 	pgd_t *pgd;
 	pmd_t *pmd;
 	pte_t *ptep, pte;
+	unsigned long pfn;
 
 	pgd = pgd_offset(mm, address);
 	if (pgd_none(*pgd) || pgd_bad(*pgd))
@@ -423,8 +441,11 @@ static struct page * follow_page(struct mm_struct *mm, unsigned long address, in
 	pte = *ptep;
 	if (pte_present(pte)) {
 		if (!write ||
-		    (pte_write(pte) && pte_dirty(pte)))
-			return pte_page(pte);
+		    (pte_write(pte) && pte_dirty(pte))) {
+			pfn = pte_pfn(pte);
+			if (pfn_valid(pfn))
+				return pfn_to_page(pfn);
+		}
 	}
 
 out:
@@ -439,7 +460,8 @@ out:
 
 static inline struct page * get_page_map(struct page *page)
 {
-	if (!VALID_PAGE(page))
+	unsigned long pfn = page_to_pfn(page);
+	if (!pfn_valid(pfn))
 		return 0;
 	return page;
 }
@@ -826,22 +848,22 @@ static inline void remap_pte_range(pte_t * pte, unsigned long address, unsigned 
 	unsigned long phys_addr, pgprot_t prot)
 {
 	unsigned long end;
+	unsigned long pfn;
 
 	address &= ~PMD_MASK;
 	end = address + size;
 	if (end > PMD_SIZE)
 		end = PMD_SIZE;
+	pfn = phys_addr >> PAGE_SHIFT;
 	do {
-		struct page *page;
 		pte_t oldpage;
 		oldpage = ptep_get_and_clear(pte);
 
-		page = virt_to_page(__va(phys_addr));
-		if ((!VALID_PAGE(page)) || PageReserved(page))
- 			set_pte(pte, mk_pte_phys(phys_addr, prot));
+		if (!pfn_valid(pfn) || PageReserved(pfn_to_page(pfn)))
+ 			set_pte(pte, pfn_pte(pfn, prot));
 		forget_pte(oldpage);
 		address += PAGE_SIZE;
-		phys_addr += PAGE_SIZE;
+		pfn++;
 		pte++;
 	} while (address && (address < end));
 }
@@ -949,10 +971,11 @@ static int do_wp_page(struct mm_struct *mm, struct vm_area_struct * vma,
 	unsigned long address, pte_t *page_table, pte_t pte)
 {
 	struct page *old_page, *new_page;
+	unsigned long pfn = pte_pfn(pte);
 
-	old_page = pte_page(pte);
-	if (!VALID_PAGE(old_page))
+	if (!pfn_valid(pfn))
 		goto bad_wp_page;
+	old_page = pte_page(pte);
 
 	if (!TryLockPage(old_page)) {
 		int reuse = can_share_swap_page(old_page);
@@ -996,7 +1019,7 @@ static int do_wp_page(struct mm_struct *mm, struct vm_area_struct * vma,
 
 bad_wp_page:
 	spin_unlock(&mm->page_table_lock);
-	printk("do_wp_page: bogus page at address %08lx (page 0x%lx)\n",address,(unsigned long)old_page);
+	printk("do_wp_page: bogus page at address %08lx\n", address);
 	return -1;
 no_mem:
 	page_cache_release(old_page);

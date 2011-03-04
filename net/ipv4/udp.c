@@ -975,6 +975,9 @@ no_header:
 	return(0);
 
 csum_error:
+
+	printk ("UDPCSE\n");
+
 	/* 
 	 * RFC1122: OK.  Discards the bad packet silently (as far as 
 	 * the network is concerned, anyway) as per 4.1.3.4 (MUST). 

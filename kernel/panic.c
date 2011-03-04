@@ -61,6 +61,12 @@ NORET_TYPE void panic(const char * fmt, ...)
 	va_start(args, fmt);
 	vsprintf(buf, fmt, args);
 	va_end(args);
+#if 1
+	/*
+	   We definitely want to reboot on panic... don't risk a hangup trying to sync
+	*/
+	printk(KERN_EMERG "Kernel panic - not syncing: %s\n", buf);
+#else
 	printk(KERN_EMERG "Kernel panic: %s\n",buf);
 	if (in_interrupt())
 		printk(KERN_EMERG "In interrupt handler - not syncing\n");
@@ -68,6 +74,7 @@ NORET_TYPE void panic(const char * fmt, ...)
 		printk(KERN_EMERG "In idle task - not syncing\n");
 	else
 		sys_sync();
+#endif
 	bust_spinlocks(0);
 
 #ifdef CONFIG_SMP

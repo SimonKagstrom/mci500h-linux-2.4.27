@@ -15,12 +15,35 @@
  * version 2 as published by the Free Software Foundation.
  */
 
+#include <linux/config.h>
+
+#if defined (CONFIG_ARCH_SSA)
+
+  #if defined (CONFIG_SSA_WESSLI)
+  #define CS8900_REGISTER_SHIFT         4
+  #else
+  #error "Unsupported platform..."
+  #endif
+
+#elif defined (CONFIG_ARCH_PNX0106)
+
+  #if defined (CONFIG_PNX0106_GH526)
+  #define CS8900_REGISTER_SHIFT         1
+  #else
+  #error "Unsupported platform..."
+  #endif
+
+#else
+#define CS8900_REGISTER_SHIFT           0
+#endif
+
+
 /*
  * Ports
  */
 
-#define PP_Address		0x0a	/* PacketPage Pointer Port (Section 4.10.10) */
-#define PP_Data			0x0c	/* PacketPage Data Port (Section 4.10.10) */
+#define PP_Address	(0x0a << CS8900_REGISTER_SHIFT)		/* PacketPage Pointer Port (Section 4.10.10) */
+#define PP_Data		(0x0c << CS8900_REGISTER_SHIFT)		/* PacketPage Data Port (Section 4.10.10) */
 
 /*
  * Registers

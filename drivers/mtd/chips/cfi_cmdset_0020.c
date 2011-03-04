@@ -21,16 +21,19 @@
 #include <linux/types.h>
 #include <linux/kernel.h>
 #include <linux/sched.h>
+#include <linux/init.h>
 #include <asm/io.h>
 #include <asm/byteorder.h>
 
 #include <linux/errno.h>
+#include <linux/init.h>
 #include <linux/slab.h>
 #include <linux/delay.h>
 #include <linux/interrupt.h>
+#include <linux/mtd/compatmac.h>
 #include <linux/mtd/map.h>
 #include <linux/mtd/cfi.h>
-#include <linux/mtd/compatmac.h>
+#include <linux/mtd/mtd.h>
 
 
 static int cfi_staa_read(struct mtd_info *, loff_t, size_t, size_t *, u_char *);
@@ -51,10 +54,10 @@ struct mtd_info *cfi_cmdset_0020(struct map_info *, int);
 static struct mtd_info *cfi_staa_setup (struct map_info *);
 
 static struct mtd_chip_driver cfi_staa_chipdrv = {
-	probe: NULL, /* Not usable directly */
-	destroy: cfi_staa_destroy,
-	name: "cfi_cmdset_0020",
-	module: THIS_MODULE
+	.probe		= NULL, /* Not usable directly */
+	.destroy	= cfi_staa_destroy,
+	.name		= "cfi_cmdset_0020",
+	.module		= THIS_MODULE
 };
 
 /* #define DEBUG_LOCK_BITS */
@@ -113,7 +116,6 @@ struct mtd_info *cfi_cmdset_0020(struct map_info *map, int primary)
 {
 	struct cfi_private *cfi = map->fldrv_priv;
 	int i;
-	__u32 base = cfi->chips[0].start;
 
 	if (cfi->cfi_mode) {
 		/* 
@@ -123,36 +125,11 @@ struct mtd_info *cfi_cmdset_0020(struct map_info *map, int primary)
 		 */
 		__u16 adr = primary?cfi->cfiq->P_ADR:cfi->cfiq->A_ADR;
 		struct cfi_pri_intelext *extp;
-		int ofs_factor = cfi->interleave * cfi->device_type;
 
-                printk(" ST Microelectronics Extended Query Table at 0x%4.4X\n", adr);
-		if (!adr)
+		extp = (struct cfi_pri_intelext*)cfi_read_pri(map, adr, sizeof(*extp), "ST Microelectronics");
+		if (!extp)
 			return NULL;
 
-		/* Switch it into Query Mode */
-		cfi_send_gen_cmd(0x98, 0x55, base, map, cfi, cfi->device_type, NULL);
-
-		extp = kmalloc(sizeof(*extp), GFP_KERNEL);
-		if (!extp) {
-			printk(KERN_ERR "Failed to allocate memory\n");
-			return NULL;
-		}
-		
-		/* Read in the Extended Query Table */
-		for (i=0; i<sizeof(*extp); i++) {
-			((unsigned char *)extp)[i] = 
-				cfi_read_query(map, (base+((adr+i)*ofs_factor)));
-		}
-		
-		if (extp->MajorVersion != '1' || 
-                    (extp->MinorVersion < '0' || extp->MinorVersion > '2')) {
-                    printk(KERN_WARNING "  Unknown staa Extended Query "
-                           "version %c.%c.\n",  extp->MajorVersion,
-                           extp->MinorVersion);
-                    kfree(extp);
-                    return NULL;
-		}
-		
 		/* Do some byteswapping if necessary */
 		extp->FeatureSupport = cfi32_to_cpu(extp->FeatureSupport);
 		extp->BlkStatusRegMask = cfi32_to_cpu(extp->BlkStatusRegMask);
@@ -172,11 +149,6 @@ struct mtd_info *cfi_cmdset_0020(struct map_info *map, int primary)
 		cfi->chips[i].erase_time = 1024;
 	}		
 
-	map->fldrv = &cfi_staa_chipdrv;
-	MOD_INC_USE_COUNT;
-	
-	/* Make sure it's in read mode */
-	cfi_send_gen_cmd(0xff, 0x55, base, map, cfi, cfi->device_type, NULL);
 	return cfi_staa_setup(map);
 }
 
@@ -208,6 +180,7 @@ static struct mtd_info *cfi_staa_setup(struct map_info *map)
 	if (!mtd->eraseregions) { 
 		printk(KERN_ERR "Failed to allocate memory for MTD erase region info\n");
 		kfree(cfi->cmdset_priv);
+		kfree(mtd);
 		return NULL;
 	}
 	
@@ -232,6 +205,7 @@ static struct mtd_info *cfi_staa_setup(struct map_info *map)
 			printk(KERN_WARNING "Sum of regions (%lx) != total size of set of interleaved chips (%lx)\n", offset, devsize);
 			kfree(mtd->eraseregions);
 			kfree(cfi->cmdset_priv);
+			kfree(mtd);
 			return NULL;
 		}
 
@@ -256,7 +230,7 @@ static struct mtd_info *cfi_staa_setup(struct map_info *map)
 	mtd->flags |= MTD_ECC; /* FIXME: Not all STMicro flashes have this */
 	mtd->eccsize = 8; /* FIXME: Should be 0 for STMicro flashes w/out ECC */
 	map->fldrv = &cfi_staa_chipdrv;
-	MOD_INC_USE_COUNT;
+	__module_get(THIS_MODULE);
 	mtd->name = map->name;
 	return mtd;
 }
@@ -288,7 +262,7 @@ static inline int do_read_onechip(struct map_info *map, struct flchip *chip, lof
 	 */
 	switch (chip->state) {
 	case FL_ERASING:
-		if (!((struct cfi_pri_intelext *)cfi->cmdset_priv)->FeatureSupport & 2)
+		if (!(((struct cfi_pri_intelext *)cfi->cmdset_priv)->FeatureSupport & 2))
 			goto sleep; /* We don't support erase suspend */
 		
 		cfi_write (map, CMD(0xb0), cmd_addr);
@@ -374,7 +348,7 @@ static inline int do_read_onechip(struct map_info *map, struct flchip *chip, lof
 		goto retry;
 	}
 
-	map->copy_from(map, buf, adr, len);
+	map_copy_from(map, buf, adr, len);
 
 	if (suspended) {
 		chip->state = chip->oldstate;
@@ -540,11 +514,11 @@ static inline int do_write_buffer(struct map_info *map, struct flchip *chip,
 	/* Write data */
 	for (z = 0; z < len; z += CFIDEV_BUSWIDTH) {
 		if (cfi_buswidth_is_1()) {
-			map->write8 (map, *((__u8*)buf)++, adr+z);
+			map_write8 (map, *((__u8*)buf)++, adr+z);
 		} else if (cfi_buswidth_is_2()) {
-			map->write16 (map, *((__u16*)buf)++, adr+z);
+			map_write16 (map, *((__u16*)buf)++, adr+z);
 		} else if (cfi_buswidth_is_4()) {
-			map->write32 (map, *((__u32*)buf)++, adr+z);
+			map_write32 (map, *((__u32*)buf)++, adr+z);
 		} else {
 			DISABLE_VPP(map);
 			return -EINVAL;
@@ -1033,6 +1007,7 @@ static void cfi_staa_sync (struct mtd_info *mtd)
 
 		default:
 			/* Not an idle state */
+			set_current_state(TASK_UNINTERRUPTIBLE);
 			add_wait_queue(&chip->wq, &wait);
 			
 			spin_unlock_bh(chip->mutex);
@@ -1436,13 +1411,13 @@ static void cfi_staa_destroy(struct mtd_info *mtd)
 
 static char im_name[]="cfi_cmdset_0020";
 
-mod_init_t cfi_staa_init(void)
+int __init cfi_staa_init(void)
 {
 	inter_module_register(im_name, THIS_MODULE, &cfi_cmdset_0020);
 	return 0;
 }
 
-mod_exit_t cfi_staa_exit(void)
+static void __exit cfi_staa_exit(void)
 {
 	inter_module_unregister(im_name);
 }

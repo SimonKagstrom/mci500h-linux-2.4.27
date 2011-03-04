@@ -6,7 +6,7 @@
  *
  * (C) 2000 Red Hat. GPLd.
  *
- * $Id: flashchip.h,v 1.8 2002/10/21 13:20:52 jocke Exp $
+ * $Id: flashchip.h,v 1.9 2003/04/30 11:15:22 dwmw2 Exp $
  *
  */
 
@@ -58,6 +58,11 @@ struct flchip {
 	int ref_point_counter;
 	flstate_t state;
 	flstate_t oldstate;
+
+	int write_suspended:1;
+	int erase_suspended:1;
+        unsigned long in_progress_block_addr;
+
 	spinlock_t *mutex;
 	spinlock_t _spinlock; /* We do it like this because sometimes they'll be shared. */
 	wait_queue_head_t wq; /* Wait on here when we're waiting for the chip

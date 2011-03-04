@@ -80,7 +80,7 @@ static char version[] __initdata = "ether1 ethernet driver (c) 2000 Russell King
 #define BUS_16 16
 #define BUS_8  8
 
-static const card_ids __init ether1_cids[] = {
+static card_ids __initdata ether1_cids[] = {
 	{ MANU_ACORN, PROD_ACORN_ETHER1 },
 	{ 0xffff, 0xffff }
 };
@@ -153,35 +153,35 @@ ether1_writebuffer (struct net_device *dev, void *data, unsigned int start, unsi
 		length -= thislen;
 
 		__asm__ __volatile__(
-	"subs	%3, %3, #2
-	bmi	2f
-1:	ldr	%0, [%1], #2
-	mov	%0, %0, lsl #16
-	orr	%0, %0, %0, lsr #16
-	str	%0, [%2], #4
-	subs	%3, %3, #2
-	bmi	2f
-	ldr	%0, [%1], #2
-	mov	%0, %0, lsl #16
-	orr	%0, %0, %0, lsr #16
-	str	%0, [%2], #4
-	subs	%3, %3, #2
-	bmi	2f
-	ldr	%0, [%1], #2
-	mov	%0, %0, lsl #16
-	orr	%0, %0, %0, lsr #16
-	str	%0, [%2], #4
-	subs	%3, %3, #2
-	bmi	2f
-	ldr	%0, [%1], #2
-	mov	%0, %0, lsl #16
-	orr	%0, %0, %0, lsr #16
-	str	%0, [%2], #4
-	subs	%3, %3, #2
-	bpl	1b
-2:	adds	%3, %3, #1
-	ldreqb	%0, [%1]
-	streqb	%0, [%2]"
+"	subs	%3, %3, #2           \n"
+"	bmi	2f                   \n"
+"1:	ldr	%0, [%1], #2         \n"
+"	mov	%0, %0, lsl #16      \n"
+"	orr	%0, %0, %0, lsr #16  \n"
+"	str	%0, [%2], #4         \n"
+"	subs	%3, %3, #2           \n"
+"	bmi	2f                   \n"
+"	ldr	%0, [%1], #2         \n"
+"	mov	%0, %0, lsl #16      \n"
+"	orr	%0, %0, %0, lsr #16  \n"
+"	str	%0, [%2], #4         \n"
+"	subs	%3, %3, #2           \n"
+"	bmi	2f                   \n"
+"	ldr	%0, [%1], #2         \n"
+"	mov	%0, %0, lsl #16      \n"
+"	orr	%0, %0, %0, lsr #16  \n"
+"	str	%0, [%2], #4         \n"
+"	subs	%3, %3, #2           \n"
+"	bmi	2f                   \n"
+"	ldr	%0, [%1], #2         \n"
+"	mov	%0, %0, lsl #16      \n"
+"	orr	%0, %0, %0, lsr #16  \n"
+"	str	%0, [%2], #4         \n"
+"	subs	%3, %3, #2           \n"
+"	bpl	1b                   \n"
+"2:	adds	%3, %3, #1           \n"
+"	ldreqb	%0, [%1]             \n"
+"	streqb	%0, [%2]             \n"
 		: "=&r" (used), "=&r" (data)
 		: "r"  (addr), "r" (thislen), "1" (data));
 
@@ -215,35 +215,35 @@ ether1_readbuffer (struct net_device *dev, void *data, unsigned int start, unsig
 		length -= thislen;
 
 		__asm__ __volatile__(
-	"subs	%3, %3, #2
-	bmi	2f
-1:	ldr	%0, [%2], #4
-	strb	%0, [%1], #1
-	mov	%0, %0, lsr #8
-	strb	%0, [%1], #1
-	subs	%3, %3, #2
-	bmi	2f
-	ldr	%0, [%2], #4
-	strb	%0, [%1], #1
-	mov	%0, %0, lsr #8
-	strb	%0, [%1], #1
-	subs	%3, %3, #2
-	bmi	2f
-	ldr	%0, [%2], #4
-	strb	%0, [%1], #1
-	mov	%0, %0, lsr #8
-	strb	%0, [%1], #1
-	subs	%3, %3, #2
-	bmi	2f
-	ldr	%0, [%2], #4
-	strb	%0, [%1], #1
-	mov	%0, %0, lsr #8
-	strb	%0, [%1], #1
-	subs	%3, %3, #2
-	bpl	1b
-2:	adds	%3, %3, #1
-	ldreqb	%0, [%2]
-	streqb	%0, [%1]"
+"	subs	%3, %3, #2      \n"
+"	bmi	2f              \n"
+"1:	ldr	%0, [%2], #4    \n"
+"	strb	%0, [%1], #1    \n"
+"	mov	%0, %0, lsr #8  \n"
+"	strb	%0, [%1], #1    \n"
+"	subs	%3, %3, #2      \n"
+"	bmi	2f              \n"
+"	ldr	%0, [%2], #4    \n"
+"	strb	%0, [%1], #1    \n"
+"	mov	%0, %0, lsr #8  \n"
+"	strb	%0, [%1], #1    \n"
+"	subs	%3, %3, #2      \n"
+"	bmi	2f              \n"
+"	ldr	%0, [%2], #4    \n"
+"	strb	%0, [%1], #1    \n"
+"	mov	%0, %0, lsr #8  \n"
+"	strb	%0, [%1], #1    \n"
+"	subs	%3, %3, #2      \n"
+"	bmi	2f              \n"
+"	ldr	%0, [%2], #4    \n"
+"	strb	%0, [%1], #1    \n"
+"	mov	%0, %0, lsr #8  \n"
+"	strb	%0, [%1], #1    \n"
+"	subs	%3, %3, #2      \n"
+"	bpl	1b              \n"
+"2:	adds	%3, %3, #1      \n"
+"	ldreqb	%0, [%2]        \n"
+"	streqb	%0, [%1]        \n"
 		: "=&r" (used), "=&r" (data)
 		: "r"  (addr), "r" (thislen), "1" (data));
 

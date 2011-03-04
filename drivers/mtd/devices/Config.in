@@ -1,6 +1,6 @@
-# drivers/mtd/maps/Config.in
+# drivers/mtd/devices/Config.in
 
-# $Id: Config.in,v 1.8 2003/01/24 23:25:14 dwmw2 Exp $
+# $Id: Config.in,v 1.11 2003/05/28 10:54:23 dwmw2 Exp $
 
 mainmenu_option next_comment
 
@@ -28,13 +28,13 @@ fi
 dep_tristate '  MTD emulation using block device' CONFIG_MTD_BLKMTD $CONFIG_MTD
 
 comment 'Disk-On-Chip Device Drivers'
-   dep_tristate '  M-Systems Disk-On-Chip 1000' CONFIG_MTD_DOC1000 $CONFIG_MTD
    dep_tristate '  M-Systems Disk-On-Chip 2000 and Millennium' CONFIG_MTD_DOC2000 $CONFIG_MTD
    dep_tristate '  M-Systems Disk-On-Chip Millennium-only alternative driver (see help)' CONFIG_MTD_DOC2001 $CONFIG_MTD
-   if [ "$CONFIG_MTD_DOC2001" = "y" -o "$CONFIG_MTD_DOC2000" = "y" ]; then
+   dep_tristate '  M-Systems Disk-On-Chip Millennium Plus driver (see help)' CONFIG_MTD_DOC2001PLUS $CONFIG_MTD
+   if [ "$CONFIG_MTD_DOC2001PLUS" = "y" -o "$CONFIG_MTD_DOC2001" = "y" -o "$CONFIG_MTD_DOC2000" = "y" ]; then
       define_bool CONFIG_MTD_DOCPROBE y
    else
-      if [ "$CONFIG_MTD_DOC2001" = "m" -o "$CONFIG_MTD_DOC2000" = "m" ]; then
+      if [ "$CONFIG_MTD_DOC2001PLUS" = "m" -o "$CONFIG_MTD_DOC2001" = "m" -o "$CONFIG_MTD_DOC2000" = "m" ]; then
 	 define_bool CONFIG_MTD_DOCPROBE m
       else
 	 define_bool CONFIG_MTD_DOCPROBE n

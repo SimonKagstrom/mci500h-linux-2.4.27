@@ -54,25 +54,36 @@ static const char version[] =
 #ifdef __arm__
 static void write_rreg(u_long base, u_int reg, u_int val)
 {
-	__asm__("str%?h	%1, [%2]	@ NET_RAP
-		str%?h	%0, [%2, #-4]	@ NET_RDP
-		" : : "r" (val), "r" (reg), "r" (ISAIO_BASE + 0x0464));
+	__asm__("str%?h	%1, [%2]	@ NET_RAP\n\t"
+		"str%?h	%0, [%2, #-4]	@ NET_RDP"
+		: : "r" (val), "r" (reg), "r" (ISAIO_BASE + 0x0464));
 }
 
 static inline unsigned short read_rreg(u_long base_addr, u_int reg)
 {
 	unsigned short v;
-	__asm__("str%?h	%1, [%2]	@ NET_RAP
-		ldr%?h	%0, [%2, #-4]	@ NET_RDP
-		" : "=r" (v): "r" (reg), "r" (ISAIO_BASE + 0x0464));
+	__asm__("str%?h	%1, [%2]	@ NET_RAP\n\t"
+		"ldr%?h	%0, [%2, #-4]	@ NET_RDP"
+		: "=r" (v): "r" (reg), "r" (ISAIO_BASE + 0x0464));
 	return v;
 }
 
 static inline void write_ireg(u_long base, u_int reg, u_int val)
 {
-	__asm__("str%?h	%1, [%2]	@ NET_RAP
-		str%?h	%0, [%2, #8]	@ NET_IDP
-		" : : "r" (val), "r" (reg), "r" (ISAIO_BASE + 0x0464));
+	__asm__("str%?h	%1, [%2]	@ NET_RAP\n\t"
+		"str%?h	%0, [%2, #8]	@ NET_IDP"
+		: : "r" (val), "r" (reg), "r" (ISAIO_BASE + 0x0464));
+}
+
+static inline unsigned short read_ireg(u_long base_addr, u_int reg)
+{
+	u_short v;
+	__asm__(
+	"str%?h	%1, [%2]	@ NAT_RAP\n\t"
+	"str%?h	%0, [%2, #8]	@ NET_IDP\n\t"
+	: "=r" (v)
+	: "r" (reg), "r" (ISAIO_BASE + 0x0464));
+	return v;
 }
 
 #define am_writeword(dev,off,val) __raw_writew(val, ISAMEM_BASE + ((off) << 1))
@@ -91,16 +102,16 @@ am_writebuffer(struct net_device *dev, u_int offset, unsigned char *buf, unsigne
 	}
 	while (length > 8) {
 		unsigned int tmp, tmp2;
-		__asm__ __volatile__("
-			ldm%?ia	%1!, {%2, %3}
-			str%?h	%2, [%0], #4
-			mov%?	%2, %2, lsr #16
-			str%?h	%2, [%0], #4
-			str%?h	%3, [%0], #4
-			mov%?	%3, %3, lsr #16
-			str%?h	%3, [%0], #4
-		" : "=&r" (offset), "=&r" (buf), "=r" (tmp), "=r" (tmp2)
-		  : "0" (offset), "1" (buf));
+		__asm__ __volatile__(
+			"ldm%?ia	%1!, {%2, %3}\n\t"
+			"str%?h	%2, [%0], #4\n\t"
+			"mov%?	%2, %2, lsr #16\n\t"
+			"str%?h	%2, [%0], #4\n\t"
+			"str%?h	%3, [%0], #4\n\t"
+			"mov%?	%3, %3, lsr #16\n\t"
+			"str%?h	%3, [%0], #4"
+		: "=&r" (offset), "=&r" (buf), "=r" (tmp), "=r" (tmp2)
+		: "0" (offset), "1" (buf));
 		length -= 8;
 	}
 	while (length > 0) {
@@ -118,36 +129,36 @@ am_readbuffer(struct net_device *dev, u_int offset, unsigned char *buf, unsigned
 	length = (length + 1) & ~1;
 	if ((int)buf & 2) {
 		unsigned int tmp;
-		__asm__ __volatile__("
-			ldr%?h	%2, [%0], #4
-			str%?b	%2, [%1], #1
-			mov%?	%2, %2, lsr #8
-			str%?b	%2, [%1], #1
-		" : "=&r" (offset), "=&r" (buf), "=r" (tmp): "0" (offset), "1" (buf));
+		__asm__ __volatile__(
+			"ldr%?h	%2, [%0], #4\n\t"
+			"str%?b	%2, [%1], #1\n\t"
+			"mov%?	%2, %2, lsr #8\n\t"
+			"str%?b	%2, [%1], #1"
+		: "=&r" (offset), "=&r" (buf), "=r" (tmp): "0" (offset), "1" (buf));
 		length -= 2;
 	}
 	while (length > 8) {
 		unsigned int tmp, tmp2, tmp3;
-		__asm__ __volatile__("
-			ldr%?h	%2, [%0], #4
-			ldr%?h	%3, [%0], #4
-			orr%?	%2, %2, %3, lsl #16
-			ldr%?h	%3, [%0], #4
-			ldr%?h	%4, [%0], #4
-			orr%?	%3, %3, %4, lsl #16
-			stm%?ia	%1!, {%2, %3}
-		" : "=&r" (offset), "=&r" (buf), "=r" (tmp), "=r" (tmp2), "=r" (tmp3)
-		  : "0" (offset), "1" (buf));
+		__asm__ __volatile__(
+			"ldr%?h	%2, [%0], #4\n\t"
+			"ldr%?h	%3, [%0], #4\n\t"
+			"orr%?	%2, %2, %3, lsl #16\n\t"
+			"ldr%?h	%3, [%0], #4\n\t"
+			"ldr%?h	%4, [%0], #4\n\t"
+			"orr%?	%3, %3, %4, lsl #16\n\t"
+			"stm%?ia	%1!, {%2, %3}"
+		: "=&r" (offset), "=&r" (buf), "=r" (tmp), "=r" (tmp2), "=r" (tmp3)
+		: "0" (offset), "1" (buf));
 		length -= 8;
 	}
 	while (length > 0) {
 		unsigned int tmp;
-		__asm__ __volatile__("
-			ldr%?h	%2, [%0], #4
-			str%?b	%2, [%1], #1
-			mov%?	%2, %2, lsr #8
-			str%?b	%2, [%1], #1
-		" : "=&r" (offset), "=&r" (buf), "=r" (tmp) : "0" (offset), "1" (buf));
+		__asm__ __volatile__(
+			"ldr%?h	%2, [%0], #4\n\t"
+			"str%?b	%2, [%1], #1\n\t"
+			"mov%?	%2, %2, lsr #8\n\t"
+			"str%?b	%2, [%1], #1"
+		: "=&r" (offset), "=&r" (buf), "=r" (tmp) : "0" (offset), "1" (buf));
 		length -= 2;
 	}
 }
@@ -254,7 +265,25 @@ am79c961_init_for_open(struct net_device *dev)
 	write_rreg (dev->base_addr, BASERXH, 0);
 	write_rreg (dev->base_addr, CSR0, CSR0_STOP);
 	write_rreg (dev->base_addr, CSR3, CSR3_IDONM|CSR3_BABLM|CSR3_DXSUFLO);
+	write_rreg (dev->base_addr, CSR4, CSR4_APAD_XMIT|CSR4_MFCOM|CSR4_RCVCCOM|CSR4_TXSTRTM|CSR4_JABM);
 	write_rreg (dev->base_addr, CSR0, CSR0_IENA|CSR0_STRT);
+}
+
+static void am79c961_timer(unsigned long data)
+{
+	struct net_device *dev = (struct net_device *)data;
+	struct dev_priv *priv = (struct dev_priv *)dev->priv;
+	unsigned int lnkstat, carrier;
+
+	lnkstat = read_ireg(dev->base_addr, ISALED0) & ISALED0_LNKST;
+	carrier = netif_carrier_ok(dev);
+
+	if (lnkstat && !carrier)
+		netif_carrier_on(dev);
+	else if (!lnkstat && carrier)
+		netif_carrier_off(dev);
+
+	mod_timer(&priv->timer, jiffies + 5*HZ);
 }
 
 /*
@@ -274,6 +303,11 @@ am79c961_open(struct net_device *dev)
 
 	am79c961_init_for_open(dev);
 
+	netif_carrier_off(dev);
+
+	priv->timer.expires = jiffies;
+	add_timer(&priv->timer);
+
 	netif_start_queue(dev);
 
 	return 0;
@@ -288,7 +322,10 @@ am79c961_close(struct net_device *dev)
 	struct dev_priv *priv = (struct dev_priv *)dev->priv;
 	unsigned long flags;
 
+	del_timer_sync(&priv->timer);
+
 	netif_stop_queue(dev);
+	netif_carrier_off(dev);
 
 	spin_lock_irqsave(priv->chip_lock, flags);
 	write_rreg (dev->base_addr, CSR0, CSR0_STOP);
@@ -413,15 +450,6 @@ am79c961_sendpacket(struct sk_buff *skb, struct net_device *dev)
 	unsigned int hdraddr, bufaddr;
 	unsigned int head;
 	unsigned long flags;
-	
-	/* FIXME: I thought the 79c961 could do padding - RMK ??? */
-	if(length < ETH_ZLEN)
-	{
-		skb = skb_padto(skb, ETH_ZLEN);
-		if(skb == NULL)
-			return 0;
-		length = ETH_ZLEN;
-	}
 
 	head = priv->txhead;
 	hdraddr = priv->txhdr + (head << 3);
@@ -431,7 +459,7 @@ am79c961_sendpacket(struct sk_buff *skb, struct net_device *dev)
 		head = 0;
 
 	am_writebuffer (dev, bufaddr, skb->data, length);
-	am_writeword (dev, hdraddr + 4, -length);
+	am_writeword (dev, hdraddr + 4, -skb->len);
 	am_writeword (dev, hdraddr + 2, TMD_OWN|TMD_STP|TMD_ENP);
 	priv->txhead = head;
 
@@ -447,6 +475,8 @@ am79c961_sendpacket(struct sk_buff *skb, struct net_device *dev)
 	 */
 	if (am_readword(dev, priv->txhdr + (priv->txhead << 3) + 2) & TMD_OWN)
 		netif_stop_queue(dev);
+
+	priv->stats.tx_bytes += skb->len;
 
 	dev_kfree_skb(skb);
 
@@ -520,6 +550,7 @@ static void
 am79c961_tx(struct net_device *dev, struct dev_priv *priv)
 {
 	do {
+		signed short len;
 		u_int hdraddr;
 		u_int status;
 
@@ -555,6 +586,8 @@ am79c961_tx(struct net_device *dev, struct dev_priv *priv)
 			continue;
 		}
 		priv->stats.tx_packets ++;
+		len = am_readword (dev, hdraddr + 4);
+		priv->stats.tx_bytes += -len;
 	} while (priv->txtail != priv->txhead);
 
 	netif_wake_queue(dev);
@@ -565,17 +598,23 @@ am79c961_interrupt(int irq, void *dev_id, struct pt_regs *regs)
 {
 	struct net_device *dev = (struct net_device *)dev_id;
 	struct dev_priv *priv = (struct dev_priv *)dev->priv;
-	u_int status;
+	u_int status, n = 100;
 
-	status = read_rreg(dev->base_addr, CSR0);
-	write_rreg(dev->base_addr, CSR0, status & (CSR0_TINT|CSR0_RINT|CSR0_MISS|CSR0_IENA));
+	do {
+		status = read_rreg(dev->base_addr, CSR0);
+		write_rreg(dev->base_addr, CSR0, status &
+			   (CSR0_IENA|CSR0_TINT|CSR0_RINT|
+			    CSR0_MERR|CSR0_MISS|CSR0_CERR|CSR0_BABL));
 
-	if (status & CSR0_RINT)
-		am79c961_rx(dev, priv);
-	if (status & CSR0_TINT)
-		am79c961_tx(dev, priv);
-	if (status & CSR0_MISS)
-		priv->stats.rx_dropped ++;
+		if (status & CSR0_RINT)
+			am79c961_rx(dev, priv);
+		if (status & CSR0_TINT)
+			am79c961_tx(dev, priv);
+		if (status & CSR0_MISS)
+			priv->stats.rx_dropped ++;
+		if (status & CSR0_CERR)
+			mod_timer(&priv->timer, jiffies);
+	} while (--n && status & (CSR0_RINT | CSR0_TINT));
 }
 
 /*
@@ -587,10 +626,10 @@ am79c961_hw_init(struct net_device *dev)
 {
 	struct dev_priv *priv = (struct dev_priv *)dev->priv;
 
-	spin_lock_irq(priv->chip_lock);
+	spin_lock_irq(&priv->chip_lock);
 	write_rreg (dev->base_addr, CSR0, CSR0_STOP);
 	write_rreg (dev->base_addr, CSR3, CSR3_MASKALL);
-	spin_unlock_irq(priv->chip_lock);
+	spin_unlock_irq(&priv->chip_lock);
 
 	am79c961_ramtest(dev, 0x66);
 	am79c961_ramtest(dev, 0x99);
@@ -654,6 +693,11 @@ static int __init am79c961_init(void)
 		dev->dev_addr[i] = inb(dev->base_addr + i * 2) & 0xff;
 		printk (i == 5 ? "%02x\n" : "%02x:", dev->dev_addr[i]);
 	}
+
+	spin_lock_init(&priv->chip_lock);
+	init_timer(&priv->timer);
+	priv->timer.data = (unsigned long)dev;
+	priv->timer.function = am79c961_timer;
 
 	if (am79c961_hw_init(dev))
 		goto release;

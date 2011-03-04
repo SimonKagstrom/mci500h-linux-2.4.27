@@ -216,6 +216,13 @@ void do_IRQ(int irq, struct pt_regs * regs)
 
 	desc->triggered = 1;
 
+#if 0
+        if (desc->mask_ack == NULL) {
+            printk ("null mask_ack for IRQ %d\n", irq);
+            return;
+        }
+#endif
+
 	/*
 	 * Acknowledge and clear the IRQ, but (if its
 	 * a level-based IRQ, don't mask it)
@@ -316,7 +323,7 @@ asmlinkage void asm_do_IRQ(int irq, struct pt_regs *regs)
 	 * Some hardware gives randomly wrong interrupts.  Rather
 	 * than crashing, do something sensible.
 	 */
-	if (irq < NR_IRQS) {
+	if (((unsigned int) irq) < NR_IRQS) {
 		int cpu = smp_processor_id();
 
 		irq_enter(cpu, irq);
@@ -340,7 +347,7 @@ asmlinkage void asm_do_IRQ(int irq, struct pt_regs *regs)
 	}
 
 	irq_err_count += 1;
-	printk(KERN_ERR "IRQ: spurious interrupt %d\n", irq);
+	printk(KERN_ERR "IRQ: spurious interrupt %d (0x%08x)\n", irq, irq);
 
 	irq_finish(irq);
 	return;
@@ -549,7 +556,7 @@ void free_irq(unsigned int irq, void *dev_id)
 		kfree(action);
 		goto out;
 	}
-	printk(KERN_ERR "Trying to free free IRQ%d\n",irq);
+	printk(KERN_ERR "Trying to free IRQ%d\n",irq);
 #ifdef CONFIG_DEBUG_ERRORS
 	__backtrace();
 #endif

@@ -432,6 +432,19 @@ NORET_TYPE void do_exit(long code)
 		panic("Attempted to kill the idle task!");
 	if (tsk->pid == 1)
 		panic("Attempted to kill init!");
+	
+#if defined (CONFIG_ARCH_PNX0106) && 0
+
+	/* mcp application */
+	if((tsk->comm[0]=='m')&&(tsk->comm[1]=='c')&&(tsk->comm[2]=='p'))
+		printk("process:%3d (%s) exit with code: %2d\n",tsk->pid,tsk->comm,code);
+
+	/* setui application */
+	if((tsk->comm[0]=='s')&&(tsk->comm[1]=='e')&&(tsk->comm[2]=='t'))
+	        printk("process:%3d (%s) exit with code: %2d\n",tsk->pid,tsk->comm,code);
+
+#endif
+		
 	tsk->flags |= PF_EXITING;
 	del_timer_sync(&tsk->real_timer);
 
@@ -587,7 +600,7 @@ end_wait4:
 	return retval;
 }
 
-#if !defined(__alpha__) && !defined(__ia64__)
+#if !defined(__alpha__) && !defined(__ia64__) && !defined(__arm__)
 
 /*
  * sys_waitpid() remains for compatibility. waitpid() should be

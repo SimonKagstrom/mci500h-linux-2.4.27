@@ -17,9 +17,9 @@
 
 /* AT91RM92000 clocks */
 #define AT91C_MAIN_CLOCK	179712000	/* from 18.432 MHz crystal (18432000 / 4 * 39) */
-#define AT91C_MASTER_CLOCK	59904000	/* peripheral clock (AT91C_MASTER_CLOCK / 3) */
+#define AT91C_MASTER_CLOCK	59904000	/* peripheral clock (AT91C_MAIN_CLOCK / 3) */
 #define AT91C_SLOW_CLOCK	32768		/* slow clock */
-
+#define AT91_PLLB_INIT		0x1048be0e      /* (18.432 / 14 * 73) /2 = 47.9714  */
 
 /* FLASH */
 #define AT91_FLASH_BASE		0x10000000	// NCS0: Flash physical base address
@@ -68,6 +68,7 @@
 #define AT91_SMR_IRQ5	(AT91C_AIC_PRIOR_LOWEST  | AT91C_AIC_SRCTYPE_INT_LEVEL_SENSITIVE)	// Advanced Interrupt Controller (IRQ5)
 #define AT91_SMR_IRQ6	(AT91C_AIC_PRIOR_LOWEST  | AT91C_AIC_SRCTYPE_INT_LEVEL_SENSITIVE)	// Advanced Interrupt Controller (IRQ6)
 
+#define AT91C_CONSOLE_DEFAULT_BAUDRATE 115200	/* default serial console baud-rate */
 
 /*
  * Serial port configuration.

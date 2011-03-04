@@ -593,6 +593,14 @@ static int c_show(struct seq_file *m, void *v)
 	seq_printf(m, "Serial\t\t: %08x%08x\n",
 		   system_serial_high, system_serial_low);
 
+#ifdef CONFIG_ARCH_SSA
+	seq_puts(m, "\n");
+	seq_printf(m, "CPU clock\t: %d Hz\n", cpuclkhz);
+	seq_printf(m, "Bus clock\t: %d Hz\n", hclkhz);
+	seq_printf(m, "UART clock\t: %d Hz\n", uartclkhz);
+	seq_puts(m, "\n");
+#endif
+
 	return 0;
 }
 

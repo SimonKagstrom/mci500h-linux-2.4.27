@@ -4527,6 +4527,14 @@ static int __devinit serial_pci_guess_board(struct pci_dev *dev,
 	}
 
 	/*
+	 * If there is exactly one port of 8 bytes, use it.
+	 */
+	if (num_port == 1 && pci_resource_len(dev, first_port) == 8) {
+		board->flags = first_port;
+		return 0;
+	}
+
+	/*
 	 * If there is 1 or 0 iomem regions, and exactly one port, use
 	 * it.
 	 */

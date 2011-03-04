@@ -10,6 +10,9 @@
 #ifndef __ASM_ARM_MACH_IRQ_H
 #define __ASM_ARM_MACH_IRQ_H
 
+#include <linux/list.h>
+#include <linux/timer.h>
+
 struct irqdesc {
 	unsigned int	 triggered: 1;		/* IRQ has occurred	      */
 	unsigned int	 running  : 1;		/* IRQ is running             */

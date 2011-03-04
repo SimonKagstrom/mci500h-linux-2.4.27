@@ -1011,6 +1011,32 @@ static ulg crc_32_tab[256];
 static ulg crc;		/* initialized in makecrc() so it'll reside in bss */
 #define CRC_VALUE (crc ^ 0xffffffffUL)
 
+#if 1
+
+/*
+ * Code to compute the CRC-32 table.
+ * Optimised-for-size version, Andre McCurdy, September 2003.
+ */
+
+static void makecrc (void)
+{
+   ulg c, n = 0, *table = crc_32_tab;
+
+   do {
+      c = n >> 3;
+      do
+         c = c & 1 ? (c >> 1) ^ 0xedb88320UL : c >> 1;
+      while (++n & 0x07);
+      *table++ = c;
+   }
+   while (n >> 11 == 0);
+
+   crc = (ulg) 0xffffffffUL;    /* initial shift register contents */
+}
+
+
+#else
+
 /*
  * Code to compute the CRC-32 table. Borrowed from 
  * gzip-1.0.3/makecrc.c.
@@ -1051,6 +1077,9 @@ makecrc(void)
   /* this is initialized here so this code could reside in ROM */
   crc = (ulg)0xffffffffUL; /* shift register contents */
 }
+
+#endif
+
 
 /* gzip flag byte */
 #define ASCII_FLAG   0x01 /* bit 0 set: file probably ASCII text */

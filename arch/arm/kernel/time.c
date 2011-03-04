@@ -136,12 +136,12 @@ EXPORT_SYMBOL(leds_event);
 #endif
 
 #ifdef CONFIG_LEDS_TIMER
-static void do_leds(void)
+static inline void do_leds(void)
 {
-	static unsigned int count = 50;
+	static unsigned int count = HZ/2;
 
 	if (--count == 0) {
-		count = 50;
+		count = HZ/2;
 		leds_event(led_timer);
 	}
 }

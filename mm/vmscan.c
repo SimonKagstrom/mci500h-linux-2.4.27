@@ -121,6 +121,7 @@ set_swap_pte:
 drop_pte:
 		mm->rss--;
 		UnlockPage(page);
+		memc_clear(vma->vm_mm, page);
 		{
 			int freeable = page_count(page) - !!page->buffers <= 2;
 			page_cache_release(page);
@@ -206,13 +207,16 @@ static inline int swap_out_pmd(struct mm_struct * mm, struct vm_area_struct * vm
 
 	do {
 		if (pte_present(*pte)) {
-			struct page *page = pte_page(*pte);
+			unsigned long pfn = pte_pfn(*pte);
 
-			if (VALID_PAGE(page) && !PageReserved(page)) {
-				count -= try_to_swap_out(mm, vma, address, pte, page, classzone);
-				if (!count) {
-					address += PAGE_SIZE;
-					break;
+			if (pfn_valid(pfn)) {
+				struct page *page = pfn_to_page(pfn);
+				if (!PageReserved(page)) {
+					count -= try_to_swap_out(mm, vma, address, pte, page, classzone);
+					if (!count) {
+						address += PAGE_SIZE;
+						break;
+					}
 				}
 			}
 		}
@@ -383,10 +387,42 @@ static int shrink_cache(int nr_pages, zone_t * classzone, unsigned int gfp_mask,
 			continue;
 		}
 
+		/*
+		   From list.h: 
+		   #define list_entry(ptr, type, member) ((type *)((char *)(ptr)-(unsigned long)(&((type *)0)->member)))
+
+		   * list_entry - get the struct for this entry
+		   * @ptr:	the &struct list_head pointer.
+		   * @type:	the type of the struct this is embedded in.
+		   * @member:	the name of the list_struct within the struct.
+		*/
 		page = list_entry(entry, struct page, lru);
 
-		BUG_ON(!PageLRU(page));
-		BUG_ON(PageActive(page));
+		BUG_ON(!PageLRU(page)); 		/* <-- this has been seen to fail on PNX0106 systems, PR3582 */
+
+		/*
+		   From mm.h : #define PageActive(page)	test_bit(PG_active, &(page)->flags)
+		*/
+#if 0
+		BUG_ON(PageActive(page));		/* <-- this has been seen to fail on PNX0106 systems, PR3248 */
+#else
+		if (PageActive(page)) {
+			printk ("%s: Active page found on inactive_list (?)... \n", __FUNCTION__);
+			printk ("%p: %2d %p [%c%c%c] %c%c [%c]\n",
+				page_address(page),
+				page_count(page),
+				page->mapping,
+				PageReserved(page) ? 'R' : '-',
+				PageSwapCache(page) ? 'S' : '-',
+				PageSlab(page) ? 's' : '-',
+				PageReferenced(page) ? 'r' : '-',
+				PageDirty(page) ? 'D' : '-',
+				PageActive(page) ? 'a' : '-');
+
+			list_del(entry);
+			continue;
+		}
+#endif
 
 		list_del(entry);
 		list_add(entry, &inactive_list);

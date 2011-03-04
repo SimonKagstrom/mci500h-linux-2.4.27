@@ -1,6 +1,6 @@
 /*
  * mtdram - a test mtd device
- * $Id: mtdram.c,v 1.29 2002/10/21 13:40:06 jocke Exp $
+ * $Id: mtdram.c,v 1.32 2003/05/21 15:15:07 dwmw2 Exp $
  * Author: Alexander Larsson <alex@cendio.se>
  *
  * Copyright (c) 1999 Alexander Larsson <alex@cendio.se>
@@ -13,6 +13,8 @@
 #include <linux/module.h>
 #include <linux/slab.h>
 #include <linux/ioport.h>
+#include <linux/vmalloc.h>
+#include <linux/init.h>
 #include <linux/mtd/compatmac.h>
 #include <linux/mtd/mtd.h>
 
@@ -136,7 +138,7 @@ int mtdram_init_device(struct mtd_info *mtd, void *mapped_address,
    mtd->erasesize = MTDRAM_ERASE_SIZE;
    mtd->priv = mapped_address;
 
-   mtd->module = THIS_MODULE;
+   mtd->owner = THIS_MODULE;
    mtd->erase = ram_erase;
    mtd->point = ram_point;
    mtd->unpoint = ram_unpoint;

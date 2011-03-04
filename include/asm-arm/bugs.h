@@ -10,8 +10,17 @@
 #ifndef __ASM_BUGS_H
 #define __ASM_BUGS_H
 
+#include <linux/config.h>
 #include <asm/proc-fns.h>
 
-#define check_bugs() cpu_check_bugs()
+extern void check_writebuffer_bugs(void);
+
+static inline void check_bugs(void)
+{
+#ifdef CONFIG_CPU_32
+	check_writebuffer_bugs();
+#endif
+	cpu_check_bugs();
+}
 
 #endif

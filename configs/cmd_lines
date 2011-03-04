@@ -1,0 +1,28 @@
+CONFIG_CMDLINE="root=/dev/nfs rw init=/bin/bash nfsroot=192.168.1.109:/arfs/arm_root_fs_current ip=192.168.1.23"
+CONFIG_CMDLINE="root=/dev/nfs rw nfsroot=192.168.0.1:/arfs/arm_root_fs_current ip=192.168.0.100"
+CONFIG_CMDLINE="root=/dev/hda2"
+
+Peter's NFS-root siig board:
+
+--------------------------------------------------------------------
+-- SIIG Ethernet + WiFi Bootloader v0.0.1-1116, (16:37:00, Sep 21 2004)
+-- Andre McCurdy, Philips Semiconductors.
+--------------------------------------------------------------------
+Flash: ManID 0x0001 (AMD), DevID 0x22DA (1MByte BT), unlocked
+Flash waitstates: (4,5,0) (read, write, turnaround)
+SDRAM: 8 MBytes
+Clocks: 74/37 MHz
+app1: Linux zImage, 0xC0600000,550044,0x00000000  <-- Boot Default
+app2: Empty Flash (unbootable)
+Loading environment from env1...
+eth0 MAC: 12:34:54:99:00:EF
+
+boot>
+boot> envdump
+IPADDR='192.168.1.23'
+REMOTEIP='192.168.1.20'
+KERNELCMD_NFS='root=/dev/nfs init=/linuxrc nfsroot=192.168.1.20:/arfs/arm_root_fs_current ip=192.168.1.23'
+MACADDR='12:34:54:99:00:EF'
+AUTOBOOT='ifup eth0; boot app1 "root=/dev/nfs init=/linuxrc nfsroot=192.168.1.99:/arfs/arm_root_fs_current ip=:"'
+
+

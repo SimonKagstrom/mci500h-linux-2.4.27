@@ -2,11 +2,13 @@
  * tsunami_flash.c
  *
  * flash chip on alpha ds10...
- * $Id: tsunami_flash.c,v 1.1 2002/01/10 22:59:13 eric Exp $
+ * $Id: tsunami_flash.c,v 1.6 2003/05/21 15:15:08 dwmw2 Exp $
  */
 #include <asm/io.h>
 #include <asm/core_tsunami.h>
+#include <linux/init.h>
 #include <linux/mtd/map.h>
+#include <linux/mtd/mtd.h>
 
 #define FLASH_ENABLE_PORT 0x00C00001
 #define FLASH_ENABLE_BYTE 0x01
@@ -58,18 +60,12 @@ static void tsunami_flash_copy_to(
 static struct map_info tsunami_flash_map = {
 	.name = "flash chip on the Tsunami TIG bus",
 	.size = MAX_TIG_FLASH_SIZE,
+	.phys = NO_XIP;
 	.buswidth = 1,
 	.read8 = tsunami_flash_read8,
-	.read16 = 0,
-	.read32 = 0, 
 	.copy_from = tsunami_flash_copy_from,
 	.write8 = tsunami_flash_write8,
-	.write16 = 0,
-	.write32 = 0,
 	.copy_to = tsunami_flash_copy_to,
-	.set_vpp = 0,
-	.map_priv_1 = 0,
-
 };
 
 static struct mtd_info *tsunami_flash_mtd;
@@ -99,7 +95,7 @@ static int __init init_tsunami_flash(void)
 		tsunami_flash_mtd = do_map_probe(*type, &tsunami_flash_map);
 	}
 	if (tsunami_flash_mtd) {
-		tsunami_flash_mtd->module = THIS_MODULE;
+		tsunami_flash_mtd->owner = THIS_MODULE;
 		add_mtd_device(tsunami_flash_mtd);
 		return 0;
 	}

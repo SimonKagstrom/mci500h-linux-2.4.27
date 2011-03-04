@@ -213,6 +213,8 @@ unsigned int usb_stor_transfer_length(Scsi_Cmnd *srb)
 	   WRITE_SAME 41
 	*/
 
+
+	//warn("I am here! %", lengths[srb->cmnd[0]);
 	if (srb->sc_data_direction == SCSI_DATA_WRITE) {
 		doDefault = 1;
 	}
@@ -333,6 +335,7 @@ unsigned int usb_stor_transfer_length(Scsi_Cmnd *srb)
 		   }
 		   else
 			   /* Just return the length of the buffer */
+			   //warn("srb->request_bufflen = %x", srb->request_bufflen);
 			   len = srb->request_bufflen;
 	   }
 
@@ -514,8 +517,10 @@ int usb_stor_transfer_partial(struct us_data *us, char *buf, int length)
 		pipe = usb_sndbulkpipe(us->pusb_dev, us->ep_out);
 
 	/* transfer the data */
+	//warn("usb_stor_transfer_partial(): xfer %d bytes\n", length);
 	US_DEBUGP("usb_stor_transfer_partial(): xfer %d bytes\n", length);
 	result = usb_stor_bulk_msg(us, buf, pipe, length, &partial);
+//	wait_ms(1000);
 	US_DEBUGP("usb_stor_bulk_msg() returned %d xferred %d/%d\n",
 		  result, partial, length);
 
@@ -589,8 +594,10 @@ void usb_stor_transfer(Scsi_Cmnd *srb, struct us_data* us)
 
 			/* transfer the lesser of the next buffer or the
 			 * remaining data */
-			if (transfer_amount - total_transferred >= 
-					sg[i].length) {
+			//warn("S_G: sg[i].length = 0x%x", sg[i].length);
+			//wait_ms(1000);
+			if (transfer_amount - total_transferred >= sg[i].length)
+			{
 				result = usb_stor_transfer_partial(us,
 						sg[i].address, sg[i].length);
 				total_transferred += sg[i].length;
@@ -1100,7 +1107,8 @@ int usb_stor_Bulk_max_lun(struct us_data *us)
 
 int usb_stor_Bulk_reset(struct us_data *us);
 
-int usb_stor_Bulk_transport(Scsi_Cmnd *srb, struct us_data *us)
+
+static int usb_stor_Bulk_transport1 (Scsi_Cmnd *srb, struct us_data *us)
 {
 	struct bulk_cb_wrap *bcb;
 	struct bulk_cs_wrap *bcs;
@@ -1109,6 +1117,7 @@ int usb_stor_Bulk_transport(Scsi_Cmnd *srb, struct us_data *us)
 	int partial;
 	int ret = USB_STOR_TRANSPORT_ERROR;
 
+	//warn("\n**********usb_stor_Bulk_transport sg = %x", srb->use_sg);
 	bcb = kmalloc(sizeof *bcb, in_interrupt() ? GFP_ATOMIC : GFP_NOIO);
 	if (!bcb) {
 		return USB_STOR_TRANSPORT_ERROR;
@@ -1137,12 +1146,21 @@ int usb_stor_Bulk_transport(Scsi_Cmnd *srb, struct us_data *us)
 	memcpy(bcb->CDB, srb->cmnd, bcb->Length);
 
 	/* send it to out endpoint */
+#if 0
+	warn("Bulk command S 0x%x T 0x%x Trg %d LUN %d L %d F %d CL %d\n",
+		  le32_to_cpu(bcb->Signature), bcb->Tag,
+		  (bcb->Lun >> 4), (bcb->Lun & 0x0F), 
+		  le32_to_cpu(bcb->DataTransferLength), bcb->Flags, bcb->Length);
+#endif
 	US_DEBUGP("Bulk command S 0x%x T 0x%x Trg %d LUN %d L %d F %d CL %d\n",
 		  le32_to_cpu(bcb->Signature), bcb->Tag,
 		  (bcb->Lun >> 4), (bcb->Lun & 0x0F), 
 		  le32_to_cpu(bcb->DataTransferLength), bcb->Flags, bcb->Length);
+
+//	wait_ms(1000);
 	result = usb_stor_bulk_msg(us, bcb, pipe, US_BULK_CB_WRAP_LEN, 
 				   &partial);
+	//wait_ms(100);
 	US_DEBUGP("Bulk command transfer result=%d\n", result);
 
 	/* if the command was aborted, indicate that */
@@ -1170,11 +1188,19 @@ int usb_stor_Bulk_transport(Scsi_Cmnd *srb, struct us_data *us)
 
 	/* if the command transfered well, then we go to the data stage */
 	if (result == 0) {
+
+		/* Genesys Logic interface chips need a 100us delay between
+		 * the command phase and the data phase.  Some systems need
+		 * even more, probably because of clock rate inaccuracies. */
+		if (us->pusb_dev->descriptor.idVendor == USB_VENDOR_ID_GENESYS)
+			udelay(110);
+
 		/* send/receive data payload, if there is any */
 		if (bcb->DataTransferLength) {
 			usb_stor_transfer(srb, us);
 			result = srb->result;
-			US_DEBUGP("Bulk data transfer result 0x%x\n", result);
+			//US_DEBUGP("Bulk data transfer result 0x%x\n", result);
+			//warn("Bulk data transfer result 0x%x\n", result);
 
 			/* if it was aborted, we need to indicate that */
 			if (result == US_BULK_TRANSFER_ABORTED) {
@@ -1195,6 +1221,8 @@ int usb_stor_Bulk_transport(Scsi_Cmnd *srb, struct us_data *us)
 	US_DEBUGP("Attempting to get CSW...\n");
 	result = usb_stor_bulk_msg(us, bcs, pipe, US_BULK_CS_WRAP_LEN, 
 				   &partial);
+
+	//warn("usb_stor_bulk_msg result 0x%x\n", -result);
 
 	/* if the command was aborted, indicate that */
 	if (result == -ECONNRESET) {
@@ -1285,7 +1313,200 @@ int usb_stor_Bulk_transport(Scsi_Cmnd *srb, struct us_data *us)
 	kfree(bcs);
 	return ret;
 }
+#if 1
+#if 0
 
+	int i;
+	int result = -1;
+	struct scatterlist *sg;
+	unsigned int total_transferred = 0;
+	unsigned int transfer_amount;
+
+	/* calculate how much we want to transfer */
+	transfer_amount = usb_stor_transfer_length(srb);
+
+	/* was someone foolish enough to request more data than available
+	 * buffer space? */
+	if (transfer_amount > srb->request_bufflen)
+		transfer_amount = srb->request_bufflen;
+
+	/* are we scatter-gathering? */
+	if (srb->use_sg) {
+
+		/* loop over all the scatter gather structures and 
+		 * make the appropriate requests for each, until done
+		 */
+		sg = (struct scatterlist *) srb->request_buffer;
+		for (i = 0; i < srb->use_sg; i++) {
+
+			/* transfer the lesser of the next buffer or the
+			 * remaining data */
+			//warn("\-S_G: sg[i].length = 0x%x", sg[i].length);
+			if (transfer_amount - total_transferred >= sg[i].length)
+			{
+				result = usb_stor_transfer_partial(us,
+						sg[i].address, sg[i].length);
+				total_transferred += sg[i].length;
+			} else
+				result = usb_stor_transfer_partial(us,
+						sg[i].address,
+						transfer_amount - total_transferred);
+
+			/* if we get an error, end the loop here */
+			if (result)
+				break;
+		}
+	}
+	else
+		/* no scatter-gather, just make the request */
+		result = usb_stor_transfer_partial(us, srb->request_buffer, 
+					     transfer_amount);
+
+	/* return the result in the data structure itself */
+	srb->result = result;
+}
+#endif
+extern volatile int iPodShuffle;
+volatile int iPodShuffleOp;
+int usb_stor_Bulk_transport(Scsi_Cmnd *srb, struct us_data *us)
+{
+	unsigned long	total = cpu_to_le32(usb_stor_transfer_length(srb));
+	/* if read 28, only one sector is allowed. */
+	if (srb->cmnd[0] != 0x28 || srb->transfersize != 2048 || iPodShuffle == 0 || total <= 2048 )
+	{
+		return usb_stor_Bulk_transport1(srb, us);
+	}
+/**
+ * Here is the specific proces for iPod Shuffle. (dev->descriptor.idProduct == 0x1301)&&(dev->descriptor.idVendor == 0x5ac)
+ */
+	iPodShuffleOp = 1;
+	{
+		static unsigned char	pMyBuffer[2048];// = NULL;
+		int						i;
+		int						cnt;
+		int						ret;
+		Scsi_Cmnd				myOne;
+		unsigned char			*pBuffer;
+		Scsi_Cmnd				*save = us->srb;
+		unsigned long			lba = (srb->cmnd[2] << 24) + (srb->cmnd[3] << 16) + (srb->cmnd[4] << 8) + srb->cmnd[5];
+
+		//warn("\nCheck sector size");
+		cnt = total/2048;
+		us->srb = &myOne;
+		if (srb->use_sg == 0)
+		{
+			pBuffer = (unsigned char *)srb->request_buffer;
+			/* this is none S-G read function */
+			for (i; i < cnt; i++)
+			{
+				memcpy(&myOne, srb, sizeof(myOne));
+				myOne.bh_next = NULL;
+				myOne.cmnd[2] = lba >> 24;
+				myOne.cmnd[3] = lba >> 16;
+				myOne.cmnd[4] = lba >> 8;
+				myOne.cmnd[5] = lba;
+				myOne.cmnd[7] = 0;
+				myOne.cmnd[8] = 1;
+				myOne.request_bufflen = 2048;
+				myOne.request_buffer = pMyBuffer;//(void *)pBuffer;
+				//wait_ms(2);
+				ret = usb_stor_Bulk_transport1(&myOne, us); //direct send these to usb_stor_Bulk_transport1
+				if (ret != USB_STOR_TRANSPORT_GOOD)
+				{
+					iPodShuffleOp = 0;
+					return	ret;
+				}
+#if 1
+				if (iPodShuffle == 1)
+				{
+					memcpy(pBuffer, pMyBuffer, 2048);
+					pBuffer += 2048;
+					lba += 1;
+				}
+				else
+				{
+					warn("ipod::usb_stor_Bulk_transport err!*******");
+					us->srb = save;
+					return	USB_STOR_TRANSPORT_ERROR;
+				}
+#else
+				pBuffer += 2048;
+				lba += 1;
+#endif
+			}
+		}
+		else
+		{
+			struct scatterlist	*sg;
+			int					j = 0, size, tx, txed;
+			//warn("\ns-g read-remove s-g, cnt = %d", cnt);
+			sg = (struct scatterlist *) srb->request_buffer;
+			size = 0;
+			for (i = 0; i < cnt; i++)
+			{
+				memcpy(&myOne, srb, sizeof(myOne));
+				myOne.use_sg = 0;
+				myOne.bh_next = NULL;
+				myOne.cmnd[2] = lba >> 24;
+				myOne.cmnd[3] = lba >> 16;
+				myOne.cmnd[4] = lba >> 8;
+				myOne.cmnd[5] = lba;
+				myOne.cmnd[7] = 0;
+				myOne.cmnd[8] = 1;
+				myOne.request_bufflen = 2048;
+				myOne.request_buffer = pMyBuffer;
+                //warn("\nhi, i am here! i=%d, j=%d, tx = %d", i, tx, j);
+				//wait_ms(2);
+				ret = usb_stor_Bulk_transport1(&myOne, us);      //recursive
+				if (ret != USB_STOR_TRANSPORT_GOOD)
+				{
+					us->srb = save;
+					iPodShuffleOp = 0;
+					return	ret;
+				}
+				lba += 1;
+				//pBuffer += 2048;
+				txed = 0;
+				for (;;)
+				{
+					if (size == 0)
+					{
+						pBuffer = sg[j].address;
+						size = sg[j].length;
+                        j += 1; //next segment
+					}
+					tx = size <= (2048 - txed)? size:(2048 -txed);
+#if 1
+					if (iPodShuffle == 1)
+					{
+						memcpy(pBuffer, pMyBuffer + txed, tx);
+					}
+					else
+					{
+						warn("ipod::usb_stor_Bulk_transport err!********");
+						us->srb = save;
+						iPodShuffleOp = 0;
+						return	USB_STOR_TRANSPORT_ERROR;
+					}
+#else
+					memcpy(pBuffer, pMyBuffer + txed, tx);
+#endif
+					size -= tx;
+					pBuffer += tx;
+					txed += tx;
+					if (txed == 2048)
+					{
+						break;
+					}
+				}
+			}
+		}
+		iPodShuffleOp = 0;
+		us->srb = save;
+		return ret;
+	}
+}
+#endif
 /***********************************************************************
  * Reset routines
  ***********************************************************************/

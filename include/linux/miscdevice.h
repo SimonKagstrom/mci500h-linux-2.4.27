@@ -15,6 +15,8 @@
 #define ADB_MOUSE_MINOR		10
 #define MK712_MINOR 		15	/* MK712 touch screen */
 #define SYNTH_MINOR    		25
+#define I2C_SAA7752_MINOR	30	/* Philips SAA7752 I2C slave */
+#define SSA_XFER_MINOR		31	/* SSA transfer driver */
 #define WATCHDOG_MINOR		130	/* Watchdog timer     */
 #define TEMP_MINOR		131	/* Temperature Sensor */
 #define RTC_MINOR		135

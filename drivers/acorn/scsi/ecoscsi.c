@@ -106,7 +106,7 @@ int ecoscsi_detect(Scsi_Host_Template * tpnt)
     instance = scsi_register (tpnt, sizeof(struct NCR5380_hostdata));
     instance->io_port = 0x80ce8000;
     instance->n_io_port = 144;
-    instance->irq = IRQ_NONE;
+    instance->irq = SCSI_IRQ_NONE;
 
     if (check_region (instance->io_port, instance->n_io_port)) {
 	scsi_unregister (instance);
@@ -130,20 +130,20 @@ int ecoscsi_detect(Scsi_Host_Template * tpnt)
 	return 0;
     }
 
-    if (instance->irq != IRQ_NONE)
+    if (instance->irq != SCSI_IRQ_NONE)
 	if (request_irq(instance->irq, do_ecoscsi_intr, SA_INTERRUPT, "ecoscsi", NULL)) {
 	    printk("scsi%d: IRQ%d not free, interrupts disabled\n",
 	    instance->host_no, instance->irq);
-	    instance->irq = IRQ_NONE;
+	    instance->irq = SCSI_IRQ_NONE;
 	}
 
-    if (instance->irq != IRQ_NONE) {
+    if (instance->irq != SCSI_IRQ_NONE) {
   	printk("scsi%d: eek! Interrupts enabled, but I don't think\n", instance->host_no);
 	printk("scsi%d: that the board had an interrupt!\n", instance->host_no);
     }
 
     printk("scsi%d: at port %X irq", instance->host_no, instance->io_port);
-    if (instance->irq == IRQ_NONE)
+    if (instance->irq == SCSI_IRQ_NONE)
 	printk ("s disabled");
     else
         printk (" %d", instance->irq);
@@ -157,7 +157,7 @@ int ecoscsi_detect(Scsi_Host_Template * tpnt)
 
 int ecoscsi_release (struct Scsi_Host *shpnt)
 {
-	if (shpnt->irq != IRQ_NONE)
+	if (shpnt->irq != SCSI_IRQ_NONE)
 		free_irq (shpnt->irq, NULL);
 	if (shpnt->io_port)
 		release_region (shpnt->io_port, shpnt->n_io_port);

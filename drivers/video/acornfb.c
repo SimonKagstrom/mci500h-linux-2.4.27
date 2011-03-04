@@ -752,11 +752,12 @@ acornfb_setcolreg(u_int regno, u_int red, u_int green, u_int blue,
 	}
 #endif
 #ifdef FBCON_HAS_CFB16
-	if (bpp == 16 && regno < 16) {
+	if (bpp == 16) {
 		int i;
 
-		current_par.cmap.cfb16[regno] =
-				regno | regno << 5 | regno << 10;
+		if (regno < 16)
+			current_par.cmap.cfb16[regno] =
+					regno | regno << 5 | regno << 10;
 
 		pal.p = 0;
 		vidc_writel(0x10000000);
@@ -1215,7 +1216,7 @@ acornfb_blank(int blank, struct fb_info *info)
 				p.vidc20.green = current_par.palette[(i >> 1) & 31].vidc20.green;
 				p.vidc20.blue  = current_par.palette[(i >> 2) & 31].vidc20.blue;
 			}
-			acornfb_palette_write(i, current_par.palette[i]);
+			acornfb_palette_write(i, p);
 		}
 	} else
 #endif

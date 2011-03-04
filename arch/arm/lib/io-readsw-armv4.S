@@ -10,6 +10,7 @@
 #include <linux/linkage.h>
 #include <asm/assembler.h>
 #include <asm/hardware.h>
+#include <linux/config.h>
 
 .insw_bad_alignment:
 		adr	r0, .insw_bad_align_msg
@@ -39,6 +40,30 @@ ENTRY(__raw_readsw)
 		subs	r2, r2, #8
 		bmi	.no_insw_8
 
+#if defined (CONFIG_ARCH_LOST_WRITES)
+
+.insw_8_lp:	ldrh	r3, [r0]
+		ldrh	r4, [r0]
+		orr	r3, r3, r4, lsl #16
+		str	r3, [r1], #4
+
+		ldrh	r4, [r0]
+		ldrh	r5, [r0]
+		orr	r4, r4, r5, lsl #16
+		str	r4, [r1], #4
+
+		ldrh	r5, [r0]
+		ldrh	ip, [r0]
+		orr	r5, r5, ip, lsl #16
+		str	r5, [r1], #4
+
+		ldrh	ip, [r0]
+		ldrh	lr, [r0]
+		orr	ip, ip, lr, lsl #16
+		str	ip, [r1], #4
+
+#else
+
 .insw_8_lp:	ldrh	r3, [r0]
 		ldrh	r4, [r0]
 		orr	r3, r3, r4, lsl #16
@@ -57,11 +82,30 @@ ENTRY(__raw_readsw)
 
 		stmia	r1!, {r3 - r5, ip}
 
+#endif
+
 		subs	r2, r2, #8
 		bpl	.insw_8_lp
 
 		tst	r2, #7
 		LOADREGS(eqfd, sp!, {r4, r5, pc})
+
+#if defined (CONFIG_ARCH_LOST_WRITES)
+
+.no_insw_8:	tst	r2, #4
+		beq	.no_insw_4
+
+		ldrh	r3, [r0]
+		ldrh	r4, [r0]
+		orr	r3, r3, r4, lsl #16
+		str	r3, [r1], #4
+
+		ldrh	r4, [r0]
+		ldrh	ip, [r0]
+		orr	r4, r4, ip, lsl #16
+		str	r4, [r1], #4
+
+#else
 
 .no_insw_8:	tst	r2, #4
 		beq	.no_insw_4
@@ -75,6 +119,8 @@ ENTRY(__raw_readsw)
 		orr	r4, r4, ip, lsl #16
 
 		stmia	r1!, {r3, r4}
+
+#endif
 
 .no_insw_4:	tst	r2, #2
 		beq	.no_insw_2

@@ -38,6 +38,7 @@
 #include <asm/arch/ether00.h>
 #include <asm/arch/tdkphy.h>
 
+static int ether00_get_ethernet_address(struct net_device* dev);
 
 MODULE_AUTHOR("Clive Davies");
 MODULE_DESCRIPTION("Altera Ether00 IP core driver");
@@ -734,8 +735,11 @@ static int ether00_open(struct net_device* dev)
 	int result,tmp;
 	struct net_priv* priv;
 
-	if (!is_valid_ether_addr(dev->dev_addr))
-		return -EINVAL;
+	if (!ether00_get_ethernet_address(dev)){
+	  printk("%s: Invalid ethernet MAC address.  Please set using "
+		 "ifconfig\n", dev->name);
+	  return -EINVAL;
+	}
 
 	dev->base_addr=(unsigned int)ioremap_nocache(base,SZ_4K);
 
@@ -906,10 +910,9 @@ static int ether00_stop(struct net_device* dev)
 }
 
 
-static void ether00_get_ethernet_address(struct net_device* dev)
+static int ether00_get_ethernet_address(struct net_device* dev)
 {
 	struct mtd_info *mymtd=NULL;
-	int i;
 	size_t retlen;
 
 	/*
@@ -926,11 +929,7 @@ static void ether00_get_ethernet_address(struct net_device* dev)
 #ifdef CONFIG_ARCH_CAMELOT
 #ifdef CONFIG_MTD
 	/* get the mtd_info structure for the first mtd device*/
-	for(i=0;i<MAX_MTD_DEVICES;i++){
-		mymtd=get_mtd_device(NULL,i);
-		if(!mymtd||!strcmp(mymtd->name,"EPXA10DB flash"))
-			break;
-	}
+	mymtd=get_mtd_device(NULL,0);
 
 	if(!mymtd || !mymtd->read_user_prot_reg){
 		printk(KERN_WARNING "%s: Failed to read MAC address from flash\n",dev->name);
@@ -947,9 +946,7 @@ static void ether00_get_ethernet_address(struct net_device* dev)
 #endif
 #endif
 
-	if (!is_valid_ether_addr(dev->dev_addr))
-		printk("%s: Invalid ethernet MAC address.  Please set using "
-			"ifconfig\n", dev->name);
+	return (is_valid_ether_addr(dev->dev_addr));
 
 }
 
@@ -965,8 +962,6 @@ static int ether00_init(struct net_device* dev)
 	dev->get_stats=ether00_stats;
 	dev->tx_timeout=ether00_tx_timeout;
 	dev->watchdog_timeo=TX_TIMEOUT;
-
-	ether00_get_ethernet_address(dev);
 
 	SET_MODULE_OWNER(dev);
 	return 0;

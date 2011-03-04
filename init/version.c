@@ -21,6 +21,15 @@ struct new_utsname system_utsname = {
 	UTS_MACHINE, UTS_DOMAINNAME
 };
 
+#if 1
+
+const char *linux_banner = 
+	"Linux version " UTS_RELEASE " (andre.mccurdy@philips.com) (" LINUX_COMPILER ") " UTS_VERSION "\n";
+#else
+
 const char *linux_banner = 
 	"Linux version " UTS_RELEASE " (" LINUX_COMPILE_BY "@"
 	LINUX_COMPILE_HOST ") (" LINUX_COMPILER ") " UTS_VERSION "\n";
+
+#endif
+

@@ -189,6 +189,69 @@ struct tag_cmdline {
 	char	cmdline[1];	/* this is the minimum size */
 };
 
+
+/* SSA specific !! */
+
+#define ATAG_CPUCLKMHZ	0x5441000A
+struct tag_cpuclkmhz {
+	u32	mhz;
+};
+
+#define ATAG_HCLKMHZ	0x5441000B
+struct tag_hclkmhz {
+	u32	mhz;
+};
+
+#define ATAG_UARTCLKHZ	0x5441000C
+struct tag_uartclkhz {
+	u32	hz;
+};
+
+#define ATAG_ETH0MAC    0x5441000D
+struct tag_eth0mac {
+	u8	macaddr[6];
+	u8	_pad[2];
+};
+
+#define ATAG_ATAREGS    0x5441000E
+struct tag_ataregs {
+	u32	start;
+};
+
+#define ATAG_CPUCLKHZ	0x5441000F
+struct tag_cpuclkhz {
+	u32	hz;
+};
+
+#define ATAG_HCLKHZ	0x54410010
+struct tag_hclkhz {
+	u32	hz;
+};
+
+#define ATAG_RELEASE_ID	0x54410011
+struct tag_release_id {
+	u32	value;
+};
+
+#define ATAG_BOOTSTART_TSC	0x54410012
+struct tag_bootstart_tsc {
+	u32	value;
+};
+
+#define ATAG_FFASTHZ	0x54410013
+struct tag_ffasthz {
+	u32	hz;
+};
+
+#define ATAG_PLATFORM_INFO	0x54410014
+struct tag_platform_info {
+	u8 platform_name[32];
+	u32 adc_reading;
+	u32 devid;
+	u32 bootmode;
+};
+
+
 /* acorn RiscPC specific information */
 #define ATAG_ACORN	0x41000101
 
@@ -218,6 +281,21 @@ struct tag {
 		struct tag_revision	revision;
 		struct tag_videolfb	videolfb;
 		struct tag_cmdline	cmdline;
+
+		/*
+		 * SSA specific
+		 */
+		struct tag_cpuclkmhz		cpuclkmhz;
+		struct tag_hclkmhz		hclkmhz;
+		struct tag_uartclkhz		uartclkhz;
+		struct tag_eth0mac		eth0mac;
+		struct tag_ataregs		ataregs;
+		struct tag_cpuclkhz		cpuclkhz;
+		struct tag_hclkhz		hclkhz;
+		struct tag_release_id		release_id;
+		struct tag_bootstart_tsc	bootstart_tsc;
+		struct tag_ffasthz		ffasthz;
+		struct tag_platform_info	platform_info;
 
 		/*
 		 * Acorn specific

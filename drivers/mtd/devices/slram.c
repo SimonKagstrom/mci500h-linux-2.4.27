@@ -1,6 +1,6 @@
 /*======================================================================
 
-  $Id: slram.c,v 1.28 2003/01/24 13:35:34 dwmw2 Exp $
+  $Id: slram.c,v 1.30 2003/05/20 21:03:08 dwmw2 Exp $
 
   This driver provides a method to access memory not used by the kernel
   itself (i.e. if the kernel commandline mem=xxx is used). To actually
@@ -199,7 +199,7 @@ int register_device(char *name, unsigned long start, unsigned long length)
 	(*curmtd)->mtdinfo->unpoint = slram_unpoint;
 	(*curmtd)->mtdinfo->read = slram_read;
 	(*curmtd)->mtdinfo->write = slram_write;
-	(*curmtd)->mtdinfo->module = THIS_MODULE;
+	(*curmtd)->mtdinfo->owner = THIS_MODULE;
 	(*curmtd)->mtdinfo->type = MTD_RAM;
 	(*curmtd)->mtdinfo->erasesize = 0x0;
 

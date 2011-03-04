@@ -28,7 +28,7 @@
     and other provisions required by the GPL.  If you do not delete
     the provisions above, a recipient may use your version of this
     file under either the MPL or the GPL.
-    
+
 ======================================================================*/
 
 #define __NO_VERSION__
@@ -55,6 +55,10 @@
 #include <pcmcia/cistpl.h>
 #include "cs_internal.h"
 
+#ifndef ISAMEM_PHYS
+#define ISAMEM_PHYS 0
+#endif
+
 /*====================================================================*/
 
 /* Parameters that can be set with 'insmod' */
@@ -62,7 +66,7 @@
 #define INT_MODULE_PARM(n, v) static int n = v; MODULE_PARM(n, "i")
 
 INT_MODULE_PARM(probe_mem,	1);		/* memory probe? */
-#ifdef CONFIG_ISA
+#ifdef CONFIG_PCMCIA_PROBE
 INT_MODULE_PARM(probe_io,	1);		/* IO port probe? */
 INT_MODULE_PARM(mem_limit,	0x10000);
 #endif
@@ -85,7 +89,7 @@ static resource_map_t mem_db = { 0, 0, &mem_db };
 /* IO port resource database */
 static resource_map_t io_db = { 0, 0, &io_db };
 
-#ifdef CONFIG_ISA
+#ifdef CONFIG_PCMCIA_PROBE
 
 typedef struct irq_info_t {
     u_int			Attributes;
@@ -133,6 +137,7 @@ static inline int check_io_resource(unsigned long b, unsigned long n,
 static inline int check_mem_resource(unsigned long b, unsigned long n,
 				     struct pci_dev *dev)
 {
+	b += ISAMEM_PHYS;
 	return check_resource(resource_parent(b, n, IORESOURCE_MEM, dev), b, n);
 }
 
@@ -169,9 +174,14 @@ static int request_io_resource(unsigned long b, unsigned long n,
 static int request_mem_resource(unsigned long b, unsigned long n,
 				char *name, struct pci_dev *dev)
 {
-	struct resource *res = make_resource(b, n, IORESOURCE_MEM, name);
-	struct resource *pr = resource_parent(b, n, IORESOURCE_MEM, dev);
+	struct resource *res;
+	struct resource *pr;
 	int err = -ENOMEM;
+
+	b += ISAMEM_PHYS;
+
+	res = make_resource(b, n, IORESOURCE_MEM, name);
+	pr = resource_parent(b, n, IORESOURCE_MEM, dev);
 
 	if (res) {
 		err = request_resource(pr, res);
@@ -181,10 +191,16 @@ static int request_mem_resource(unsigned long b, unsigned long n,
 	return err;
 }
 
+void release_mem_resource(unsigned long b, unsigned long n)
+{
+	b += ISAMEM_PHYS;
+	release_mem_region(b, n);
+}
+
 /*======================================================================
 
     These manage the internal databases of available resources.
-    
+
 ======================================================================*/
 
 static int add_interval(resource_map_t *map, u_long base, u_long num)
@@ -248,25 +264,25 @@ static int sub_interval(resource_map_t *map, u_long base, u_long num)
 
     These routines examine a region of IO or memory addresses to
     determine what ranges might be genuinely available.
-    
+
 ======================================================================*/
 
-#ifdef CONFIG_ISA
+#ifdef CONFIG_PCMCIA_PROBE
 static void do_io_probe(ioaddr_t base, ioaddr_t num)
 {
-    
+
     ioaddr_t i, j, bad, any;
     u_char *b, hole, most;
-    
+
     printk(KERN_INFO "cs: IO port probe 0x%04x-0x%04x:",
 	   base, base+num-1);
-    
+
     /* First, what does a floating port look like? */
     b = kmalloc(256, GFP_KERNEL);
     if (!b) {
             printk(KERN_ERR "do_io_probe: unable to kmalloc 256 bytes");
             return;
-    }   
+    }
     memset(b, 0, 256);
     for (i = base, most = 0; i < base+num; i += 8) {
 	if (check_io_resource(i, 8, NULL))
@@ -308,7 +324,7 @@ static void do_io_probe(ioaddr_t base, ioaddr_t num)
 	    printk(" %#04x-%#04x", bad, i-1);
 	}
     }
-    
+
     printk(any ? "\n" : " clean.\n");
 }
 #endif
@@ -318,7 +334,7 @@ static void do_io_probe(ioaddr_t base, ioaddr_t num)
     The memory probe.  If the memory list includes a 64K-aligned block
     below 1MB, we probe in 64K chunks, and as soon as we accumulate at
     least mem_limit free space, we quit.
-    
+
 ======================================================================*/
 
 static int do_mem_probe(u_long base, u_long num,
@@ -332,7 +348,7 @@ static int do_mem_probe(u_long base, u_long num,
     bad = fail = 0;
     step = (num < 0x20000) ? 0x2000 : ((num>>4) & ~0x1fff);
     for (i = j = base; i < base+num; i = j + step) {
-	if (!fail) {	
+	if (!fail) {
 	    for (j = i; j < base+num; j += step)
 		if ((check_mem_resource(j, step, s->cap.cb_dev) == 0) &&
 		    is_valid(j))
@@ -356,7 +372,7 @@ static int do_mem_probe(u_long base, u_long num,
     return (num - bad);
 }
 
-#ifdef CONFIG_ISA
+#ifdef CONFIG_PCMCIA_PROBE
 
 static u_long inv_probe(int (*is_valid)(u_long),
 			int (*do_cksum)(u_long),
@@ -383,7 +399,7 @@ void validate_mem(int (*is_valid)(u_long), int (*do_cksum)(u_long),
     static u_char order[] = { 0xd0, 0xe0, 0xc0, 0xf0 };
     static int hi = 0, lo = 0;
     u_long b, i, ok = 0;
-    
+
     if (!probe_mem) return;
     /* We do up to four passes through the list */
     if (!force_low) {
@@ -414,14 +430,14 @@ void validate_mem(int (*is_valid)(u_long), int (*do_cksum)(u_long),
     }
 }
 
-#else /* CONFIG_ISA */
+#else /* CONFIG_PCMCIA_PROBE */
 
 void validate_mem(int (*is_valid)(u_long), int (*do_cksum)(u_long),
 		  int force_low, socket_info_t *s)
 {
     resource_map_t *m, *n;
     static int done = 0;
-    
+
     if (!probe_mem || done++)
 	return;
 
@@ -432,7 +448,7 @@ void validate_mem(int (*is_valid)(u_long), int (*do_cksum)(u_long),
     }
 }
 
-#endif /* CONFIG_ISA */
+#endif /* CONFIG_PCMCIA_PROBE */
 
 /*======================================================================
 
@@ -444,7 +460,7 @@ void validate_mem(int (*is_valid)(u_long), int (*do_cksum)(u_long),
     should be a power of two, greater than or equal to 'num'.  A value
     of 0 means that all bits of *base are significant.  *base should
     also be strictly less than 'align'.
-    
+
 ======================================================================*/
 
 int find_io_region(ioaddr_t *base, ioaddr_t num, ioaddr_t align,
@@ -452,7 +468,7 @@ int find_io_region(ioaddr_t *base, ioaddr_t num, ioaddr_t align,
 {
     ioaddr_t try;
     resource_map_t *m;
-    
+
     for (m = io_db.next; m != &io_db; m = m->next) {
 	try = (m->base & ~(align-1)) + *base;
 	for (try = (try >= m->base) ? try : try+align;
@@ -500,10 +516,10 @@ int find_mem_region(u_long *base, u_long num, u_long align,
     This checks to see if an interrupt is available, with support
     for interrupt sharing.  We don't support reserving interrupts
     yet.  If the interrupt is available, we allocate it.
-    
+
 ======================================================================*/
 
-#ifdef CONFIG_ISA
+#ifdef CONFIG_PCMCIA_PROBE
 
 static void fake_irq(int i, void *d, struct pt_regs *r) { }
 static inline int check_irq(int irq)
@@ -570,7 +586,7 @@ int try_irq(u_int Attributes, int irq, int specific)
 
 /*====================================================================*/
 
-#ifdef CONFIG_ISA
+#ifdef CONFIG_PCMCIA_PROBE
 
 void undo_irq(u_int Attributes, int irq)
 {
@@ -600,7 +616,7 @@ void undo_irq(u_int Attributes, int irq)
 
     The various adjust_* calls form the external interface to the
     resource database.
-    
+
 ======================================================================*/
 
 static int adjust_memory(adjust_t *adj)
@@ -632,7 +648,7 @@ static int adjust_memory(adjust_t *adj)
     default:
 	ret = CS_UNSUPPORTED_FUNCTION;
     }
-    
+
     return ret;
 }
 
@@ -641,7 +657,7 @@ static int adjust_memory(adjust_t *adj)
 static int adjust_io(adjust_t *adj)
 {
     int base, num;
-    
+
     base = adj->resource.io.BasePort;
     num = adj->resource.io.NumPorts;
     if ((base < 0) || (base > 0xffff))
@@ -653,7 +669,7 @@ static int adjust_io(adjust_t *adj)
     case ADD_MANAGED_RESOURCE:
 	if (add_interval(&io_db, base, num) != 0)
 	    return CS_IN_USE;
-#ifdef CONFIG_ISA
+#ifdef CONFIG_PCMCIA_PROBE
 	if (probe_io)
 	    do_io_probe(base, num);
 #endif
@@ -673,15 +689,15 @@ static int adjust_io(adjust_t *adj)
 
 static int adjust_irq(adjust_t *adj)
 {
-#ifdef CONFIG_ISA
+#ifdef CONFIG_PCMCIA_PROBE
     int irq;
     irq_info_t *info;
-    
+
     irq = adj->resource.irq.IRQ;
     if ((irq < 0) || (irq > 15))
 	return CS_BAD_IRQ;
     info = &irq_table[irq];
-    
+
     switch (adj->Action) {
     case ADD_MANAGED_RESOURCE:
 	if (info->Attributes & RES_REMOVED)
@@ -716,7 +732,7 @@ int pcmcia_adjust_resource_info(client_handle_t handle, adjust_t *adj)
 {
     if (CHECK_HANDLE(handle))
 	return CS_BAD_HANDLE;
-    
+
     switch (adj->Resource) {
     case RES_MEMORY_RANGE:
 	return adjust_memory(adj);
@@ -736,7 +752,7 @@ int pcmcia_adjust_resource_info(client_handle_t handle, adjust_t *adj)
 void release_resource_db(void)
 {
     resource_map_t *p, *q;
-    
+
     for (p = mem_db.next; p != &mem_db; p = q) {
 	q = p->next;
 	kfree(p);

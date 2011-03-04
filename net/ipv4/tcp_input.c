@@ -1272,6 +1272,77 @@ void tcp_enter_loss(struct sock *sk, int how)
 
 	tcp_clear_retrans(tp);
 
+#if 0
+
+/*
+
+c016439c:	e3570000 	cmp	r7, #0	; 0x0
+c01643a0:	05943010 	ldreq	r3, [r4, #16]
+c01643a4:	05843168 	streq	r3, [r4, #360]			<-- tp->undo_marker = tp->snd_una
+
+c01643a8:	e5952058 	ldr	r2, [r5, #88]			<-- skb = (sk)->write_queue.next
+c01643ac:	e59430e0 	ldr	r3, [r4, #224]			<-- r3 = (tp)->send_head
+c01643b0:	e1520003 	cmp	r2, r3				<-- compare skb with (tp)->send_head
+c01643b4:	0a000023 	beq	c0164448 <tcp_enter_loss+0x1f8> <-- if equal, exit loop
+c01643b8:	e2850058 	add	r0, r5, #88	; 0x58		<-- r0 = address of (sk)->write_queue ??
+c01643bc:	e1520000 	cmp	r2, r0				<-- compare skb with address of (sk)->write_queue ??
+c01643c0:	0a000020 	beq	c0164448 <tcp_enter_loss+0x1f8> <-- if equal, exit loop
+
+--
+Next instruction segfaults...
+
+c01643c4:	e5d2304d 	ldrb	r3, [r2, #77]			<-- r3 = TCP_SKB_CB(skb)->sacked
+-- 
+
+c01643c8:	e2866001 	add	r6, r6, #1	; 0x1		<-- cnt++
+c01643cc:	e3130082 	tst	r3, #130	; 0x82
+c01643d0:	13a03000 	movne	r3, #0	; 0x0
+c01643d4:	15843168 	strne	r3, [r4, #360]
+c01643d8:	e5d2304d 	ldrb	r3, [r2, #77]
+c01643dc:	e3c33006 	bic	r3, r3, #6	; 0x6
+c01643e0:	e5c2304d 	strb	r3, [r2, #77]
+c01643e4:	e5d2304d 	ldrb	r3, [r2, #77]
+c01643e8:	e3c31001 	bic	r1, r3, #1	; 0x1
+c01643ec:	e2233001 	eor	r3, r3, #1	; 0x1
+c01643f0:	e2033001 	and	r3, r3, #1	; 0x1
+c01643f4:	e3570000 	cmp	r7, #0	; 0x0
+c01643f8:	13833001 	orrne	r3, r3, #1	; 0x1
+c01643fc:	e3530000 	cmp	r3, #0	; 0x0
+c0164400:	05943158 	ldreq	r3, [r4, #344]
+c0164404:	0584615c 	streq	r6, [r4, #348]
+c0164408:	02833001 	addeq	r3, r3, #1	; 0x1
+c016440c:	05843158 	streq	r3, [r4, #344]
+c0164410:	0a000006 	beq	c0164430 <tcp_enter_loss+0x1e0>
+c0164414:	e5c2104d 	strb	r1, [r2, #77]
+c0164418:	e5d2304d 	ldrb	r3, [r2, #77]
+c016441c:	e3833004 	orr	r3, r3, #4	; 0x4
+c0164420:	e5c2304d 	strb	r3, [r2, #77]
+c0164424:	e5943154 	ldr	r3, [r4, #340]
+c0164428:	e2833001 	add	r3, r3, #1	; 0x1
+c016442c:	e5843154 	str	r3, [r4, #340]
+
+c0164430:	e5922000 	ldr	r2, [r2]
+c0164434:	e59430e0 	ldr	r3, [r4, #224]
+c0164438:	e1520003 	cmp	r2, r3
+c016443c:	0a000001 	beq	c0164448 <tcp_enter_loss+0x1f8>
+c0164440:	e1520000 	cmp	r2, r0
+c0164444:	1affffde 	bne	c01643c4 <tcp_enter_loss+0x174>
+
+
+From include/net/tcp.h:
+
+#define TCP_SKB_CB(__skb)	((struct tcp_skb_cb *)&((__skb)->cb[0]))
+
+#define for_retrans_queue(skb, sk, tp) \
+		for (skb = (sk)->write_queue.next;			\
+		     (skb != (tp)->send_head) &&			\
+		     (skb != (struct sk_buff *)&(sk)->write_queue);	\
+		     skb=skb->next)
+
+*/
+
+#endif
+
 	/* Push undo marker, if it was plain RTO and nothing
 	 * was retransmitted. */
 	if (!how)
@@ -1290,6 +1361,25 @@ void tcp_enter_loss(struct sock *sk, int how)
 			tp->sacked_out++;
 			tp->fackets_out = cnt;
 		}
+
+#if 1
+		/*
+		   Wild guess... The Broadcom driver writes a debug message into
+		   an skb. Try to detect that particular special case before it
+		   segfaults...
+		*/
+
+		if (((unsigned long) (skb->next)) == 0x313a3030) {
+			int i;
+			printk ("\n\ntcp_enter_loss: skb->next corrupt !! (See PR1548)\n");
+			for (i = 0; i < 128; i++) {
+				if (i && ((i % 16) == 0))
+					printk ("\n");
+				printk ("0x%02x,", ((unsigned char *) skb)[i]);
+			}
+		}
+#endif
+
 	}
 	tcp_sync_left_out(tp);
 

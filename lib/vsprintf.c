@@ -22,7 +22,7 @@
 
 #include <asm/div64.h>
 #include <asm/page.h>
-
+#include <asm/current.h>
 /**
  * simple_strtoul - convert a string to an unsigned long
  * @cp: The start of the string
@@ -231,6 +231,40 @@ static char * number(char * buf, char * end, long long num, int base, int size, 
 * Call this function if you are already dealing with a va_list.
 * You probably want snprintf instead.
  */
+char vsnprintf_dbgbuf[8192];
+//this function will be called by panic function!!
+static void dump_vsnprintf_dbgbuf(const char *str, unsigned long bottom, unsigned long top)
+{
+	unsigned long p = bottom & ~31;
+	int i;
+
+	printk("%s(0x%08lx to 0x%08lx)\n", str, bottom, top);
+
+	for (p = bottom & ~31; p < top;) {
+		printk("%04lx: ", p & 0xffff);
+
+		for (i = 0; i < 8; i++, p += 4) {
+			unsigned int val;
+
+			if (p < bottom || p >= top)
+				printk("         ");
+			else {
+				val=*(unsigned long *)p;
+				printk("%08x ", val);
+			}
+		}
+		printk ("\n");
+	}
+
+}
+
+void show_vsnprintf_dbgbuf(void)
+{
+	dump_vsnprintf_dbgbuf("vsnprintf dead!!",(unsigned long)(vsnprintf_dbgbuf),(unsigned long)vsnprintf_dbgbuf+8192);
+}
+static char *pCurrent;	//added by alex
+static int pStkIdx;		//added by alex
+
 int vsnprintf(char *buf, size_t size, const char *fmt, va_list args)
 {
 	int len;
@@ -239,8 +273,9 @@ int vsnprintf(char *buf, size_t size, const char *fmt, va_list args)
 	char *str, *end, c;
 	const char *s;
 
+	
 	int flags;		/* flags to number() */
-
+	
 	int field_width;	/* width of output field */
 	int precision;		/* min. # of digits for integers; max
 				   number of chars for from string */
@@ -259,7 +294,6 @@ int vsnprintf(char *buf, size_t size, const char *fmt, va_list args)
 		}
 		return 0;
 	}
-
 	str = buf;
 	end = buf + size - 1;
 
@@ -290,8 +324,25 @@ int vsnprintf(char *buf, size_t size, const char *fmt, va_list args)
 
 		/* get field width */
 		field_width = -1;
-		if (isdigit(*fmt))
+		if (isdigit(*fmt)){
+			if(((str-buf)>2000)||((buf-end)>2000)){
+				pCurrent=(char *)current;
+				for(pStkIdx=0;pStkIdx<8192;pStkIdx++)
+					vsnprintf_dbgbuf[pStkIdx]=*pCurrent++;
+
+				str=(char *)0x313a3030;	//make sure it will panic!!!
+			}
+
 			field_width = skip_atoi(&fmt);
+			if(((str-buf)>2000)||((buf-end)>2000)){
+				pCurrent=(char *)current;
+				for(pStkIdx=0;pStkIdx<8192;pStkIdx++)
+					vsnprintf_dbgbuf[pStkIdx]=*pCurrent++;
+
+				str=(char *)0x313a3030;	//make sure it will panic!!!
+			}
+			
+			}
 		else if (*fmt == '*') {
 			++fmt;
 			/* it's the next argument */
@@ -306,8 +357,18 @@ int vsnprintf(char *buf, size_t size, const char *fmt, va_list args)
 		precision = -1;
 		if (*fmt == '.') {
 			++fmt;	
-			if (isdigit(*fmt))
+			if (isdigit(*fmt)){
 				precision = skip_atoi(&fmt);
+			if(((str-buf)>2000)||((buf-end)>2000)){
+				pCurrent=(char *)current;
+				for(pStkIdx=0;pStkIdx<8192;pStkIdx++)
+					vsnprintf_dbgbuf[pStkIdx]=*pCurrent++;
+
+				str=(char *)0x313a3030;	//make sure it will panic!!!
+			}
+
+				
+				}
 			else if (*fmt == '*') {
 				++fmt;
 				/* it's the next argument */
@@ -457,6 +518,15 @@ int vsnprintf(char *buf, size_t size, const char *fmt, va_list args)
 			if (flags & SIGN)
 				num = (signed int) num;
 		}
+
+		if(((str-buf)>2000)||((buf-end)>2000)){
+			pCurrent=(char *)current;
+			for(pStkIdx=0;pStkIdx<8192;pStkIdx++)
+				vsnprintf_dbgbuf[pStkIdx]=*pCurrent++;
+
+			str=(char *)0x313a3030;	//make sure it will panic!!!
+			}
+
 		str = number(str, end, num, base,
 				field_width, precision, flags);
 	}

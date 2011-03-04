@@ -400,7 +400,11 @@ ide_startstop_t drive_cmd_intr (ide_drive_t *drive)
 	int retries = 10;
 
 	local_irq_enable();
+#ifdef CONFIG_SSA_HAS7752
+	if ((stat & DRIVE_READY) && args && args[3]) {
+#else
 	if ((stat & DRQ_STAT) && args && args[3]) {
+#endif
 		u8 io_32bit = drive->io_32bit;
 		drive->io_32bit = 0;
 		hwif->ata_input_data(drive, &args[4], args[3] * SECTOR_WORDS);
@@ -899,11 +903,13 @@ static ide_startstop_t ide_dma_timeout_retry(ide_drive_t *drive, int error)
 	rq = HWGROUP(drive)->rq;
 	HWGROUP(drive)->rq = NULL;
 
-	rq->errors = 0;
-	rq->sector = rq->bh->b_rsector;
-	rq->current_nr_sectors = rq->bh->b_size >> 9;
-	rq->hard_cur_sectors = rq->current_nr_sectors;
-	rq->buffer = rq->bh->b_data;
+	if (rq) {
+		rq->errors = 0;
+		rq->sector = rq->bh->b_rsector;
+		rq->current_nr_sectors = rq->bh->b_size >> 9;
+		rq->hard_cur_sectors = rq->current_nr_sectors;
+		rq->buffer = rq->bh->b_data;
+	}
 
 	return ret;
 }
@@ -1065,6 +1071,11 @@ static void unexpected_intr (int irq, ide_hwgroup_t *hwgroup)
 						"status=0x%02x, count=%ld\n",
 						hwif->name,
 						(hwif->next==hwgroup->hwif) ? "" : "(?)", stat, count);
+#if defined (CONFIG_PNX0106_W6) 	|| \
+    defined (CONFIG_PNX0106_HASLI7) || \
+    defined (CONFIG_PNX0106_MCIH)
+						panic ("%s: unexpected interrupt", hwif->name);
+#endif
 				}
 			}
 		}

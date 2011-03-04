@@ -453,6 +453,700 @@ ENTRY(soft_irq_mask)
 		.macro	irq_prio_table
 		.endm
 
+@
+@ ------------------------------------------------------------------------------
+@
+
+#elif defined (CONFIG_ARCH_PNX0106)
+
+		.macro  disable_fiq
+		.endm
+
+		.macro  get_irqnr_and_base, irqnr, irqstat, base, tmp
+
+		mov	\base, #IO_ADDRESS_INTC_BASE		@ int controller virtual base address
+
+		ldr	\irqstat, [\base, #0x200]		@ pending slice[0] (irqs 0..31) register
+		cmp	\irqstat, #0				@ if no requests set in slice[0]
+		beq	1001f					@ check slice[1]
+
+		tst	\irqstat, #(1 << 2)			@ experimental hack: service EVENTROUTER_IRQ_0 (ethernet) before others
+		movne   \irqnr, #IRQ_EVENTROUTER_IRQ_0
+		bne     1003f
+
+		clz     \irqnr, \irqstat
+		rsbs	\irqnr, \irqnr, #31
+		b	1003f
+1001:		ldr	\irqstat, [\base, #0x204]		@ pending slice[1] (irqs 32..39) register
+		cmp	\irqstat, #0				@ if no requests set in slice[1]
+		beq	1003f					@ we're done... (no more ints are pending)
+		clz     \irqnr, \irqstat
+		rsbs	\irqnr, \irqnr, #63
+@1002:		movs	\irqnr, #0				@ No more requests pending: set EQ
+1003:								@ if valid request was found, EQ flag should be clear and IRQ should be in \irqnr
+		.endm
+
+		.macro  irq_prio_table
+		.endm
+
+@
+@ ------------------------------------------------------------------------------
+@
+
+#elif defined(CONFIG_SSA_SIIG)
+ 
+		.macro  disable_fiq
+		.endm
+		
+		.macro  get_irqnr_and_base, irqnr, irqstat, base, tmp
+		
+		mov     \base, #IO_ADDRESS_INTC_BASE            @ int controller virtual base address
+		ldr     \irqstat, [\base, #0x1C]                @ status register
+		ldr     \tmp, [\base, #0x10]                    @ mask register
+		bic     \irqstat, \irqstat, \tmp                @ unmasked active int requests
+		tst     \irqstat, #(1 << 8)                     @ GPIO int request set
+		beq     1001f                                   @ skip GPIO probe if this isnt a GPIO irq
+		mov     \base, #IO_ADDRESS_GPIO_BASE            @ GPIO int controller virtual base address
+		ldr     \irqstat, [\base, #0x28]                @ status register (pre masked...)
+		tst     \irqstat, #(1 << 26)                    @ PCMCIA int request set
+		movne   \irqnr, #INT_PCMCIA
+		bne     1003f
+		tst     \irqstat, #(1 << 2)                     @ CS8900 int request set
+		movne   \irqnr, #INT_CS8900
+		bne     1003f
+		tst     \irqstat, #(1 << 8)                     @ ATA int request set
+		movne   \irqnr, #INT_ATA
+		bne     1003f
+		b       1002f                                   @ spurious GPIO irq...
+
+1001:		tst     \irqstat, #(1 << 1)                     @ Audio Transfer Unit int request set
+		movne   \irqnr, #INT_ATU
+		bne     1003f
+		tst     \irqstat, #(1 << 4)                     @ CT0 timer int request set
+		movne   \irqnr, #INT_CT0
+		bne     1003f
+		tst     \irqstat, #(1 << 28)                    @ uart int request set
+		movne   \irqnr, #INT_UART0
+		bne     1003f
+		tst     \irqstat, #(1 << 5)                     @ CT1 timer int request set
+		movne   \irqnr, #INT_CT1
+		bne     1003f
+		tst     \irqstat, #(1 << 9)                     @ IIC slave int request set
+		movne   \irqnr, #INT_IIC_SLAVE
+		bne     1003f
+		tst     \irqstat, #(1 << 10)                    @ IIC master int request set
+		movne   \irqnr, #INT_IIC_MASTER
+		bne     1003f
+
+1002:		movs    \irqnr, #0                              @ spurious irq...
+1003:		
+		.endm
+
+		.macro  irq_prio_table
+		.endm
+
+
+#elif defined(CONFIG_SSA_WESSLI)
+ 
+		.macro  disable_fiq
+		.endm
+		
+		.macro  get_irqnr_and_base, irqnr, irqstat, base, tmp
+		
+		mov     \base, #IO_ADDRESS_INTC_BASE            @ int controller virtual base address
+		ldr     \irqstat, [\base, #0x1C]                @ status register
+		ldr     \tmp, [\base, #0x10]                    @ mask register
+		bic     \irqstat, \irqstat, \tmp                @ unmasked active int requests
+		tst     \irqstat, #(1 << 8)                     @ GPIO int request set
+		beq     1001f                                   @ skip GPIO probe if this isnt a GPIO irq
+		mov     \base, #IO_ADDRESS_GPIO_BASE            @ GPIO int controller virtual base address
+		ldr     \irqstat, [\base, #0x28]                @ status register (pre masked...)
+		tst     \irqstat, #(1 << 27)                    @ PCMCIA int request set
+		movne   \irqnr, #INT_PCMCIA
+		bne     1003f
+		tst     \irqstat, #(1 << 28)                    @ Ethernet int request set
+		movne   \irqnr, #INT_CS8900
+		bne     1003f
+		b       1002f                                   @ spurious GPIO irq...
+
+1001:		tst     \irqstat, #(1 << 1)                     @ Audio Transfer Unit int request set
+		movne   \irqnr, #INT_ATU
+		bne     1003f
+		tst     \irqstat, #(1 << 4)                     @ CT0 timer int request set
+		movne   \irqnr, #INT_CT0
+		bne     1003f
+		tst     \irqstat, #(1 << 28)                    @ uart int request set
+		movne   \irqnr, #INT_UART0
+		bne     1003f
+		tst     \irqstat, #(1 << 5)                     @ CT1 timer int request set
+		movne   \irqnr, #INT_CT1
+		bne     1003f
+		tst     \irqstat, #(1 << 9)                     @ IIC slave int request set
+		movne   \irqnr, #INT_IIC_SLAVE
+		bne     1003f
+		tst     \irqstat, #(1 << 10)                    @ IIC master int request set
+		movne   \irqnr, #INT_IIC_MASTER
+		bne     1003f
+
+1002:		movs    \irqnr, #0                              @ spurious irq...
+1003:		
+		.endm
+
+		.macro  irq_prio_table
+		.endm
+
+
+#elif defined(CONFIG_SSA_W3)
+ 
+		.macro  disable_fiq
+		.endm
+		
+		.macro  get_irqnr_and_base, irqnr, irqstat, base, tmp
+		
+		mov     \base, #IO_ADDRESS_INTC_BASE            @ int controller virtual base address
+		ldr     \irqstat, [\base, #0x1C]                @ status register
+		ldr     \tmp, [\base, #0x10]                    @ mask register
+		bic     \irqstat, \irqstat, \tmp                @ unmasked active int requests
+		tst     \irqstat, #(1 << 8)                     @ GPIO int request set
+		beq     1001f                                   @ skip GPIO probe if this isnt a GPIO irq
+		mov     \base, #IO_ADDRESS_GPIO_BASE            @ GPIO int controller virtual base address
+		ldr     \irqstat, [\base, #0x28]                @ status register (pre masked...)
+
+#if defined (INT_PCMCIA)
+		tst     \irqstat, #(1 << 27)                    @ PCMCIA int request set (same pin as SPI)
+		movne   \irqnr, #INT_PCMCIA
+		bne     1003f
+#endif
+
+#if defined (INT_SPI)
+		tst     \irqstat, #(1 << 27)                    @ SPI int request set (same pin as PCMCIA)
+		movne   \irqnr, #INT_SPI
+		bne     1003f
+#endif
+
+#if defined (INT_GPI)
+		tst     \irqstat, #(1 << 1)                     @ GPI GDFCIRDY int request set
+		movne   \irqnr, #INT_GPI
+		bne     1003f
+#endif
+		tst     \irqstat, #(1 << 14)                    @ Ethernet int request set
+		movne   \irqnr, #INT_ETHERNET
+		bne     1003f
+
+		b       1002f                                   @ spurious GPIO irq...
+
+1001:		tst     \irqstat, #(1 << 1)                     @ Audio Transfer Unit int request set
+		movne   \irqnr, #INT_ATU
+		bne     1003f
+		tst     \irqstat, #(1 << 4)                     @ CT0 timer int request set
+		movne   \irqnr, #INT_CT0
+		bne     1003f
+		tst     \irqstat, #(1 << 28)                    @ uart int request set
+		movne   \irqnr, #INT_UART0
+		bne     1003f
+		tst     \irqstat, #(1 << 5)                     @ CT1 timer int request set
+		movne   \irqnr, #INT_CT1
+		bne     1003f
+		tst     \irqstat, #(1 << 9)                     @ IIC slave int request set
+		movne   \irqnr, #INT_IIC_SLAVE
+		bne     1003f
+		tst     \irqstat, #(1 << 10)                    @ IIC master int request set
+		movne   \irqnr, #INT_IIC_MASTER
+		bne     1003f
+
+1002:		movs    \irqnr, #0                              @ spurious irq...
+1003:		
+		.endm
+
+		.macro  irq_prio_table
+		.endm
+
+
+#elif defined(CONFIG_SSA_TAHOE)
+ 
+		.macro  disable_fiq
+		.endm
+		
+		.macro  get_irqnr_and_base, irqnr, irqstat, base, tmp
+		
+		mov     \base, #IO_ADDRESS_INTC_BASE            @ int controller virtual base address
+		ldr     \irqstat, [\base, #0x1C]                @ status register
+		ldr     \tmp, [\base, #0x10]                    @ mask register
+		bic     \irqstat, \irqstat, \tmp                @ unmasked active int requests
+		tst     \irqstat, #(1 << 8)                     @ GPIO int request set
+		beq     1001f                                   @ skip GPIO probe if this isnt a GPIO irq
+		mov     \base, #IO_ADDRESS_GPIO_BASE            @ GPIO int controller virtual base address
+		ldr     \irqstat, [\base, #0x28]                @ status register (pre masked...)
+
+		tst     \irqstat, #(1 << 27)                    @ Ethernet int request set (gpio 20)
+		movne   \irqnr, #INT_ETHERNET
+		bne     1003f
+		tst     \irqstat, #(1 << 28)                    @ BGW2xx int request set (gpio 21)
+		movne   \irqnr, #INT_WLAN
+		bne     1003f
+		tst     \irqstat, #(1 << 29)                    @ USB Host int request set (gpio 22)
+		movne   \irqnr, #INT_USB_HOST
+		bne     1003f
+		tst     \irqstat, #(1 << 30)                    @ USB Device int request set (gpio 23)
+		movne   \irqnr, #INT_USB_DEVICE
+		bne     1003f
+		tst     \irqstat, #(1 << 4)                     @ Keypad input 0 int request set (gpio 4)
+		movne   \irqnr, #INT_KEYPAD_IN_0
+		bne     1003f
+		tst     \irqstat, #(1 << 5)                     @ Keypad input 1 int request set (gpio 5)
+		movne   \irqnr, #INT_KEYPAD_IN_1
+		bne     1003f
+		tst     \irqstat, #(1 << 6)                     @ Keypad input 2 int request set (gpio 6)
+		movne   \irqnr, #INT_KEYPAD_IN_2
+		bne     1003f
+
+		b       1002f                                   @ spurious GPIO irq...
+
+1001:		tst     \irqstat, #(1 << 1)                     @ Audio Transfer Unit int request set
+		movne   \irqnr, #INT_ATU
+		bne     1003f
+		tst     \irqstat, #(1 << 4)                     @ CT0 timer int request set
+		movne   \irqnr, #INT_CT0
+		bne     1003f
+		tst     \irqstat, #(1 << 28)                    @ uart int request set
+		movne   \irqnr, #INT_UART0
+		bne     1003f
+		tst     \irqstat, #(1 << 5)                     @ CT1 timer int request set
+		movne   \irqnr, #INT_CT1
+		bne     1003f
+		tst     \irqstat, #(1 << 9)                     @ IIC slave int request set
+		movne   \irqnr, #INT_IIC_SLAVE
+		bne     1003f
+		tst     \irqstat, #(1 << 10)                    @ IIC master int request set
+		movne   \irqnr, #INT_IIC_MASTER
+		bne     1003f
+
+1002:		movs    \irqnr, #0                              @ spurious irq...
+1003:		
+		.endm
+
+		.macro  irq_prio_table
+		.endm
+
+
+#elif defined(CONFIG_SSA_HAS7752)
+
+		@
+		@ NB __has7752_get_irqnr_and_base does not use the normal ARM function calling
+		@ conventions. Registers which may be used: r0, r1, r5, r6, lr
+		@ 
+
+		.align	4					@ ARM720T cache lines are 16 bytes
+1:		.word	release_id				@ make iteral pool more cache line friendly...
+
+__has7752_get_irqnr_and_base:
+
+		ldr	r0, [pc, #(1b-.-8)]
+		ldr	r0, [r0]
+		mov	r0, r0, lsr #28 			@ platform ID is the top 4bits of release ID
+		ldr	r0, [pc, r0, lsl #2]
+		mov	pc, r0
+
+		.word	__has7752_get_irqnr_and_base_UNKNOWN	@ platform ID = 0x0
+		.word	__has7752_get_irqnr_and_base_HAS_LAB1	@ platform ID = 0x1
+		.word	__has7752_get_irqnr_and_base_HAS_LAB2	@ platform ID = 0x2
+		.word	__has7752_get_irqnr_and_base_UNKNOWN	@ platform ID = 0x3
+		.word	__has7752_get_irqnr_and_base_UNKNOWN	@ platform ID = 0x4
+		.word	__has7752_get_irqnr_and_base_UNKNOWN	@ platform ID = 0x5
+		.word	__has7752_get_irqnr_and_base_UNKNOWN	@ platform ID = 0x6
+		.word	__has7752_get_irqnr_and_base_UNKNOWN	@ platform ID = 0x7
+		.word	__has7752_get_irqnr_and_base_UNKNOWN	@ platform ID = 0x8
+		.word	__has7752_get_irqnr_and_base_UNKNOWN	@ platform ID = 0x9
+		.word	__has7752_get_irqnr_and_base_SDB_REVA	@ platform ID = 0xA
+		.word	__has7752_get_irqnr_and_base_UNKNOWN	@ platform ID = 0xB
+		.word	__has7752_get_irqnr_and_base_SDB_REVC	@ platform ID = 0xC
+		.word	__has7752_get_irqnr_and_base_UNKNOWN	@ platform ID = 0xD
+		.word	__has7752_get_irqnr_and_base_UNKNOWN	@ platform ID = 0xE
+		.word	__has7752_get_irqnr_and_base_UNKNOWN	@ platform ID = 0xF
+
+@
+@ ------------------------------------------------------------------------------
+@
+
+		.align	4					@ ARM720T cache lines are 16 bytes
+
+__has7752_get_irqnr_and_base_SDB_REVA:
+
+		mov     r5, #IO_ADDRESS_INTC_BASE		@ internal INTC virtual base address
+		ldr     r6, [r5, #0x1C]				@ internal INTC status register
+		ldr     r1, [r5, #0x10]				@ internal INTC mask register
+		bic     r6, r6, r1				@ ignore int requests which are active but disabled
+		tst     r6, #(1 << 8)				@ is the int request from the GPIO INTC set ?
+		beq     2002f					@ if not, then probe other internal int sources
+
+		mov     r5, #IO_ADDRESS_GPIO_BASE		@ GPIO INTC virtual base address
+		ldr     r6, [r5, #0x28]				@ GPIO INTC status register (pre masked...)
+		tst     r6, #(1 << 27)				@ is the int request from the EPLD set ?
+		beq     2001f					@ if not, then probe for other GPIO int sources
+
+		ldr	r5, =IO_ADDRESS_ATA_REGS_BASE		@ EPLD ATA controller virtual base address
+		ldrh    r6, [r5, #0x00]				@ EPLD ATA controller Int Pending register
+		ldrh    r1, [r5, #0x02]				@ EPLD ATA controller Int Enable register
+		ands    r6, r6, r1				@ ignore int requests which are active but disabled
+		movne   r0, #INT_ATA				@ if any bits remain, at least one ATA int is active
+		movne	pc, lr					@ if so return with int source in r0 and Z flag set
+
+		ldr	r5, =IO_ADDRESS_DPRAM_REGS_BASE		@ EPLD DPRAM controller virtual base address
+		ldrh    r6, [r5, #0x00]				@ EPLD DPRAM controller Int Pending register
+		ldrh    r1, [r5, #0x02]				@ EPLD DPRAM controller Int Enable register
+		ands    r6, r6, r1				@ ignore int requests which are active but disabled
+		movne   r0, #INT_DPRAM				@ if any bits remain, at least one ATA int is active
+		movne	pc, lr					@ if so return with int source in r0 and Z flag set
+
+		ldr	r5, =EPLD_ISP1581_INT_REGS_BASE		@ EPLD ISP1581 controller virtual base address
+		ldrh    r6, [r5, #0x00]				@ EPLD ISP1581 controller Int Pending register
+		ldrh    r1, [r5, #0x02]				@ EPLD ISP1581 controller Int Enable register
+		ands    r6, r6, r1				@ ignore int requests which are active but disabled
+		movne   r0, #INT_ISP1581			@ if any bits remain, at least one ISP1581 int is active
+		movne	pc, lr					@ if so return with int source in r0 and Z flag set
+		
+		b	__has7752_get_irqnr_and_base_UNKNOWN	@ else we had an unexpected int request from the EPLD
+
+		.ltorg						@ try to make literal pool reasonably cache friendly...
+
+		.align	4					@ ARM720T cache lines are 16 bytes
+
+2001:		tst     r6, #(1 << 14)				@ is the int request from the AX88796 set ?
+		movne   r0, #INT_ETHERNET			@ if so return with int source in r0 and Z flag clear
+		movne	pc, lr
+		
+		tst     r6, #(1 << 13)				@ is the int request from the PCMCIA set ?
+		movne   r0, #INT_PCMCIA 			@ if so return with int source in r0 and Z flag clear
+		movne	pc, lr
+
+		b	__has7752_get_irqnr_and_base_UNKNOWN	@ else we had an unexpected int request from GPIO INTC
+
+		.align	4					@ ARM720T cache lines are 16 bytes
+
+2002:		tst     r6, #(1 << 4)				@ is int request from CT0 timer set ?
+		movne   r0, #INT_CT0				@ if so return with int source in r0 and Z flag clear
+		movne	pc, lr					
+		
+		tst     r6, #(1 << 28)				@ is int request from UART set ?
+		movne   r0, #INT_UART0				@ if so return with int source in r0 and Z flag clear
+		movne	pc, lr					
+		
+		tst     r6, #(1 << 1)				@ is int request from Audio Transfer Unit set ?
+		movne   r0, #INT_ATU				@ if so return with int source in r0 and Z flag clear
+		movne	pc, lr					
+		
+		tst     r6, #(1 << 5)				@ is int request from CT1 set ?
+		movne   r0, #INT_CT1				@ if so return with int source in r0 and Z flag clear
+		movne	pc, lr					
+		
+		tst     r6, #(1 << 9)				@ is int request from IIC Slave set ?
+		movne   r0, #INT_IIC_SLAVE			@ if so return with int source in r0 and Z flag clear
+		movne	pc, lr					
+		
+		tst     r6, #(1 << 10)				@ is int request from IIC Master set ?
+		movne   r0, #INT_IIC_MASTER			@ if so return with int source in r0 and Z flag clear
+		movne	pc, lr					
+
+		b	__has7752_get_irqnr_and_base_UNKNOWN	@ else we had an unexpected int request from internal INTC
+		
+@
+@ ------------------------------------------------------------------------------
+@
+
+		.align	4					@ ARM720T cache lines are 16 bytes
+
+__has7752_get_irqnr_and_base_SDB_REVC:
+
+		mov     r5, #IO_ADDRESS_INTC_BASE		@ internal INTC virtual base address
+		ldr     r6, [r5, #0x1C]				@ internal INTC status register
+		ldr     r1, [r5, #0x10]				@ internal INTC mask register
+		bic     r6, r6, r1				@ ignore int requests which are active but disabled
+		tst     r6, #(1 << 8)				@ is the int request from the GPIO INTC set ?
+		beq     2002f					@ if not, then probe other internal int sources
+
+		mov     r5, #IO_ADDRESS_GPIO_BASE		@ GPIO INTC virtual base address
+		ldr     r6, [r5, #0x28]				@ GPIO INTC status register (pre masked...)
+		tst     r6, #(1 << 27)				@ is the int request from the EPLD set ?
+		beq     2001f					@ if not, then probe for other GPIO int sources
+
+		ldr	r5, =IO_ADDRESS_ATA_REGS_BASE		@ EPLD ATA controller virtual base address
+		ldrh    r6, [r5, #0x00]				@ EPLD ATA controller Int Pending register
+		ldrh    r1, [r5, #0x02]				@ EPLD ATA controller Int Enable register
+		ands    r6, r6, r1				@ ignore int requests which are active but disabled
+		movne   r0, #INT_ATA				@ if any bits remain, at least one ATA int is active
+		movne	pc, lr					@ if so return with int source in r0 and Z flag set
+
+		ldr	r5, =IO_ADDRESS_DPRAM_REGS_BASE		@ EPLD DPRAM controller virtual base address
+		ldrh    r6, [r5, #0x00]				@ EPLD DPRAM controller Int Pending register
+		ldrh    r1, [r5, #0x02]				@ EPLD DPRAM controller Int Enable register
+		ands    r6, r6, r1				@ ignore int requests which are active but disabled
+		movne   r0, #INT_DPRAM				@ if any bits remain, at least one ATA int is active
+		movne	pc, lr					@ if so return with int source in r0 and Z flag set
+
+		ldr	r5, =EPLD_ISP1581_INT_REGS_BASE		@ EPLD ISP1581 controller virtual base address
+		ldrh    r6, [r5, #0x00]				@ EPLD ISP1581 controller Int Pending register
+		ldrh    r1, [r5, #0x02]				@ EPLD ISP1581 controller Int Enable register
+		ands    r6, r6, r1				@ ignore int requests which are active but disabled
+		movne   r0, #INT_ISP1581			@ if any bits remain, at least one ISP1581 int is active
+		movne	pc, lr					@ if so return with int source in r0 and Z flag set
+		
+		b	__has7752_get_irqnr_and_base_UNKNOWN	@ else we had an unexpected int request from the EPLD
+
+		.ltorg						@ try to make literal pool reasonably cache friendly...
+
+		.align	4					@ ARM720T cache lines are 16 bytes
+
+2001:		tst     r6, #(1 << 14)				@ is the int request from the AX88796 set ?
+		movne   r0, #INT_ETHERNET			@ if so return with int source in r0 and Z flag clear
+		movne	pc, lr
+		
+		tst     r6, #(1 << 29)				@ is the int request from the PCMCIA set ?
+		movne   r0, #INT_PCMCIA 			@ if so return with int source in r0 and Z flag clear
+		movne	pc, lr
+
+		b	__has7752_get_irqnr_and_base_UNKNOWN	@ else we had an unexpected int request from GPIO INTC
+
+		.align	4					@ ARM720T cache lines are 16 bytes
+
+2002:		tst     r6, #(1 << 4)				@ is int request from CT0 timer set ?
+		movne   r0, #INT_CT0				@ if so return with int source in r0 and Z flag clear
+		movne	pc, lr					
+		
+		tst     r6, #(1 << 28)				@ is int request from UART set ?
+		movne   r0, #INT_UART0				@ if so return with int source in r0 and Z flag clear
+		movne	pc, lr					
+		
+		tst     r6, #(1 << 1)				@ is int request from Audio Transfer Unit set ?
+		movne   r0, #INT_ATU				@ if so return with int source in r0 and Z flag clear
+		movne	pc, lr					
+		
+		tst     r6, #(1 << 5)				@ is int request from CT1 set ?
+		movne   r0, #INT_CT1				@ if so return with int source in r0 and Z flag clear
+		movne	pc, lr					
+		
+		tst     r6, #(1 << 9)				@ is int request from IIC Slave set ?
+		movne   r0, #INT_IIC_SLAVE			@ if so return with int source in r0 and Z flag clear
+		movne	pc, lr					
+		
+		tst     r6, #(1 << 10)				@ is int request from IIC Master set ?
+		movne   r0, #INT_IIC_MASTER			@ if so return with int source in r0 and Z flag clear
+		movne	pc, lr					
+
+		b	__has7752_get_irqnr_and_base_UNKNOWN	@ else we had an unexpected int request from internal INTC
+
+@
+@ ------------------------------------------------------------------------------
+@
+
+		.align	4					@ ARM720T cache lines are 16 bytes
+
+__has7752_get_irqnr_and_base_HAS_LAB1:
+
+		mov     r5, #IO_ADDRESS_INTC_BASE		@ internal INTC virtual base address
+		ldr     r6, [r5, #0x1C]				@ internal INTC status register
+		ldr     r1, [r5, #0x10]				@ internal INTC mask register
+		bic     r6, r6, r1				@ ignore int requests which are active but disabled
+		tst     r6, #(1 << 8)				@ is the int request from the GPIO INTC set ?
+		beq     2002f					@ if not, then probe other internal int sources
+
+		mov     r5, #IO_ADDRESS_GPIO_BASE		@ GPIO INTC virtual base address
+		ldr     r6, [r5, #0x28]				@ GPIO INTC status register (pre masked...)
+		tst     r6, #(1 << 27)				@ is the int request from the EPLD set ?
+		beq     2001f					@ if not, then probe for other GPIO int sources
+
+		ldr	r5, =IO_ADDRESS_ATA_REGS_BASE		@ EPLD ATA controller virtual base address
+		ldrh    r6, [r5, #0x00]				@ EPLD ATA controller Int Pending register
+		ldrh    r1, [r5, #0x02]				@ EPLD ATA controller Int Enable register
+		ands    r6, r6, r1				@ ignore int requests which are active but disabled
+		movne   r0, #INT_ATA				@ if any bits remain, at least one ATA int is active
+		movne	pc, lr					@ if so return with int source in r0 and Z flag set
+
+		ldr	r5, =IO_ADDRESS_DPRAM_REGS_BASE		@ EPLD DPRAM controller virtual base address
+		ldrh    r6, [r5, #0x00]				@ EPLD DPRAM controller Int Pending register
+		ldrh    r1, [r5, #0x02]				@ EPLD DPRAM controller Int Enable register
+		ands    r6, r6, r1				@ ignore int requests which are active but disabled
+		movne   r0, #INT_DPRAM				@ if any bits remain, at least one ATA int is active
+		movne	pc, lr					@ if so return with int source in r0 and Z flag set
+
+		ldr	r5, =EPLD_ISP1581_INT_REGS_BASE		@ EPLD ISP1581 controller virtual base address
+		ldrh    r6, [r5, #0x00]				@ EPLD ISP1581 controller Int Pending register
+		ldrh    r1, [r5, #0x02]				@ EPLD ISP1581 controller Int Enable register
+		ands    r6, r6, r1				@ ignore int requests which are active but disabled
+		movne   r0, #INT_ISP1581			@ if any bits remain, at least one ISP1581 int is active
+		movne	pc, lr					@ if so return with int source in r0 and Z flag set
+		
+		b	__has7752_get_irqnr_and_base_UNKNOWN	@ else we had an unexpected int request from the EPLD
+
+		.ltorg						@ try to make literal pool reasonably cache friendly...
+
+		.align	4					@ ARM720T cache lines are 16 bytes
+
+2001:		tst     r6, #(1 << 14)				@ is the int request from the AX88796 set ?
+		movne   r0, #INT_ETHERNET			@ if so return with int source in r0 and Z flag clear
+		movne	pc, lr
+		
+		tst     r6, #(1 << 29)				@ is the int request from the PCMCIA set ?
+		movne   r0, #INT_PCMCIA				@ if so return with int source in r0 and Z flag clear
+		movne	pc, lr
+
+		tst     r6, #(1 << 28)				@ is the int request from the USB Host set ?
+		movne   r0, #INT_USBH				@ if so return with int source in r0 and Z flag clear
+		movne	pc, lr
+
+		b	__has7752_get_irqnr_and_base_UNKNOWN	@ else we had an unexpected int request from GPIO INTC
+
+		.align	4					@ ARM720T cache lines are 16 bytes
+
+2002:		tst     r6, #(1 << 4)				@ is int request from CT0 timer set ?
+		movne   r0, #INT_CT0				@ if so return with int source in r0 and Z flag clear
+		movne	pc, lr					
+		
+		tst     r6, #(1 << 28)				@ is int request from UART set ?
+		movne   r0, #INT_UART0				@ if so return with int source in r0 and Z flag clear
+		movne	pc, lr					
+		
+		tst     r6, #(1 << 1)				@ is int request from Audio Transfer Unit set ?
+		movne   r0, #INT_ATU				@ if so return with int source in r0 and Z flag clear
+		movne	pc, lr					
+		
+		tst     r6, #(1 << 5)				@ is int request from CT1 set ?
+		movne   r0, #INT_CT1				@ if so return with int source in r0 and Z flag clear
+		movne	pc, lr					
+		
+		tst     r6, #(1 << 9)				@ is int request from IIC Slave set ?
+		movne   r0, #INT_IIC_SLAVE			@ if so return with int source in r0 and Z flag clear
+		movne	pc, lr					
+		
+		tst     r6, #(1 << 10)				@ is int request from IIC Master set ?
+		movne   r0, #INT_IIC_MASTER			@ if so return with int source in r0 and Z flag clear
+		movne	pc, lr					
+
+		b	__has7752_get_irqnr_and_base_UNKNOWN	@ else we had an unexpected int request from internal INTC
+
+@
+@ ------------------------------------------------------------------------------
+@
+
+		.align	4					@ ARM720T cache lines are 16 bytes
+
+__has7752_get_irqnr_and_base_HAS_LAB2:
+
+		mov     r5, #IO_ADDRESS_INTC_BASE		@ internal INTC virtual base address
+		ldr     r6, [r5, #0x1C]				@ internal INTC status register
+		ldr     r1, [r5, #0x10]				@ internal INTC mask register
+		bic     r6, r6, r1				@ ignore int requests which are active but disabled
+		tst     r6, #(1 << 8)				@ is the int request from the GPIO INTC set ?
+		beq     2002f					@ if not, then probe other internal int sources
+
+		mov     r5, #IO_ADDRESS_GPIO_BASE		@ GPIO INTC virtual base address
+		ldr     r6, [r5, #0x28]				@ GPIO INTC status register (pre masked...)
+		tst     r6, #(1 << 27)				@ is the int request from the EPLD set ?
+		beq     2001f					@ if not, then probe for other GPIO int sources
+
+		ldr	r5, =IO_ADDRESS_KTIMER_REGS_BASE	@ EPLD KTIMER virtual base address
+		ldrh    r6, [r5, #0x04]				@ EPLD KTIMER Int Pending register
+		ldrh    r1, [r5, #0x06]				@ EPLD KTIMER Int Enable register
+		ands    r6, r6, r1				@ ignore int requests which are active but disabled
+		movne   r0, #INT_KTIMER				@ if any bits remain, KTIMER int must be is active
+		movne	pc, lr					@ if so return with int source in r0 and Z flag set
+
+		ldr	r5, =IO_ADDRESS_ATA_REGS_BASE		@ EPLD ATA controller virtual base address
+		ldrh    r6, [r5, #0x00]				@ EPLD ATA controller Int Pending register
+		ldrh    r1, [r5, #0x02]				@ EPLD ATA controller Int Enable register
+		ands    r6, r6, r1				@ ignore int requests which are active but disabled
+		movne   r0, #INT_ATA				@ if any bits remain, at least one ATA int is active
+		movne	pc, lr					@ if so return with int source in r0 and Z flag set
+
+		ldr	r5, =IO_ADDRESS_DPRAM_REGS_BASE		@ EPLD DPRAM controller virtual base address
+		ldrh    r6, [r5, #0x00]				@ EPLD DPRAM controller Int Pending register
+		ldrh    r1, [r5, #0x02]				@ EPLD DPRAM controller Int Enable register
+		ands    r6, r6, r1				@ ignore int requests which are active but disabled
+		movne   r0, #INT_DPRAM				@ if any bits remain, at least one ATA int is active
+		movne	pc, lr					@ if so return with int source in r0 and Z flag set
+
+		ldr	r5, =EPLD_ISP1581_INT_REGS_BASE		@ EPLD ISP1581 controller virtual base address
+		ldrh    r6, [r5, #0x00]				@ EPLD ISP1581 controller Int Pending register
+		ldrh    r1, [r5, #0x02]				@ EPLD ISP1581 controller Int Enable register
+		ands    r6, r6, r1				@ ignore int requests which are active but disabled
+		movne   r0, #INT_ISP1581			@ if any bits remain, at least one ISP1581 int is active
+		movne	pc, lr					@ if so return with int source in r0 and Z flag set
+		
+		b	__has7752_get_irqnr_and_base_UNKNOWN	@ else we had an unexpected int request from the EPLD
+
+		.ltorg						@ try to make literal pool reasonably cache friendly...
+
+		.align	4					@ ARM720T cache lines are 16 bytes
+
+2001:		tst     r6, #(1 << 14)				@ is the int request from the AX88796 set ?
+		movne   r0, #INT_ETHERNET			@ if so return with int source in r0 and Z flag clear
+		movne	pc, lr
+		
+		tst     r6, #(1 << 29)				@ is the int request from the PCMCIA set ?
+		movne   r0, #INT_PCMCIA				@ if so return with int source in r0 and Z flag clear
+		movne	pc, lr
+
+		tst     r6, #(1 << 28)				@ is the int request from the USB Host set ?
+		movne   r0, #INT_USBH				@ if so return with int source in r0 and Z flag clear
+		movne	pc, lr
+
+		b	__has7752_get_irqnr_and_base_UNKNOWN	@ else we had an unexpected int request from GPIO INTC
+
+		.align	4					@ ARM720T cache lines are 16 bytes
+
+2002:		tst     r6, #(1 << 4)				@ is int request from CT0 timer set ?
+		movne   r0, #INT_CT0				@ if so return with int source in r0 and Z flag clear
+		movne	pc, lr					
+		
+		tst     r6, #(1 << 28)				@ is int request from UART set ?
+		movne   r0, #INT_UART0				@ if so return with int source in r0 and Z flag clear
+		movne	pc, lr					
+		
+		tst     r6, #(1 << 1)				@ is int request from Audio Transfer Unit set ?
+		movne   r0, #INT_ATU				@ if so return with int source in r0 and Z flag clear
+		movne	pc, lr					
+		
+		tst     r6, #(1 << 5)				@ is int request from CT1 set ?
+		movne   r0, #INT_CT1				@ if so return with int source in r0 and Z flag clear
+		movne	pc, lr					
+		
+		tst     r6, #(1 << 9)				@ is int request from IIC Slave set ?
+		movne   r0, #INT_IIC_SLAVE			@ if so return with int source in r0 and Z flag clear
+		movne	pc, lr					
+		
+		tst     r6, #(1 << 10)				@ is int request from IIC Master set ?
+		movne   r0, #INT_IIC_MASTER			@ if so return with int source in r0 and Z flag clear
+		movne	pc, lr					
+
+		b	__has7752_get_irqnr_and_base_UNKNOWN	@ else we had an unexpected int request from internal INTC
+
+@
+@ ------------------------------------------------------------------------------
+@
+
+__has7752_get_irqnr_and_base_UNKNOWN:
+
+		movs    r0, #0					@ spurious irq...
+		mov	pc, lr					@ return with Z flag set
+
+
+@
+@ ------------------------------------------------------------------------------
+@
+
+		.macro  disable_fiq
+		.endm
+		
+		.macro  get_irqnr_and_base, irqnr, irqstat, base, tmp
+		bl	__has7752_get_irqnr_and_base
+		.endm
+		
+		.macro  irq_prio_table
+		.endm
+
+@
+@ ------------------------------------------------------------------------------
+@
+
 #elif defined(CONFIG_ARCH_AT91RM9200)
 #include <asm/hardware.h>
 
@@ -677,12 +1371,11 @@ __dabt_svc:	sub	sp, sp, #S_FRAME_SIZE
 		mrs	r9, cpsr			@ Enable interrupts if they were
 		tst	r3, #I_BIT
 		biceq	r9, r9, #I_BIT			@ previously
-		mov	r0, r2				@ *** remove once everyones in sync
 /*
  * This routine must not corrupt r9
  */
 #ifdef MULTI_CPU
-		ldr	r4, .LCprocfns			@ pass r0, r3 to
+		ldr	r4, .LCprocfns			@ pass r2, r3 to
 		mov	lr, pc				@ processor code
 		ldr	pc, [r4]			@ call processor specific code
 #else
@@ -788,9 +1481,8 @@ __dabt_usr:	sub	sp, sp, #S_FRAME_SIZE		@ Allocate frame size in one go
 		stmdb	r5, {sp, lr}^
 		alignment_trap r7, r7, __temp_abt
 		zero_fp
-		mov	r0, r2				@ remove once everyones in sync
 #ifdef MULTI_CPU
-		ldr	r4, .LCprocfns			@ pass r0, r3 to
+		ldr	r4, .LCprocfns			@ pass r2, r3 to
 		mov	lr, pc				@ processor code
 		ldr	pc, [r4]			@ call processor specific code
 #else
@@ -840,7 +1532,8 @@ __und_usr:	sub	sp, sp, #S_FRAME_SIZE		@ Allocate frame size in one go
 		adrsvc	al, r9, ret_from_exception	@ r9  = normal FP return
 		adrsvc	al, lr, fpundefinstr		@ lr  = undefined instr return
 
-call_fpe:	get_current_task r10
+call_fpe:	enable_irq r10
+		get_current_task r10
 		mov	r8, #1
 		strb	r8, [r10, #TSK_USED_MATH]	@ set current->used_math
 		ldr	r4, .LCfp

@@ -12,7 +12,11 @@ O_TARGET := proc.o
 export-objs := root.o
 
 obj-y    := inode.o root.o base.o generic.o array.o \
-		kmsg.o proc_tty.o proc_misc.o kcore.o
+		kmsg.o proc_tty.o proc_misc.o
+
+#
+#obj-y += kcore.o
+#
 
 ifeq ($(CONFIG_PROC_DEVICETREE),y)
 obj-y += proc_devtree.o

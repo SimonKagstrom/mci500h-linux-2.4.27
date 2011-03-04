@@ -4,6 +4,10 @@
    Some of these names and comments originated from the Crynwr
    packet drivers, which are distributed under the GPL. */
 
+/* bast asix ethernet support, (c) 2003 Simtec Electronics
+ *   Ben Dooks <ben@simtec.co.uk>
+*/
+
 #ifndef _8390_h
 #define _8390_h
 
@@ -95,8 +99,15 @@ struct ei_device {
 /* Some generic ethernet register configurations. */
 #define E8390_TX_IRQ_MASK	0xa	/* For register EN0_ISR */
 #define E8390_RX_IRQ_MASK	0x5
-#define E8390_RXCONFIG		0x4	/* EN0_RXCR: broadcasts, no multicast,errors */
+#ifdef COMPILE_ASIX
+#define E8390_RXCONFIG		0x46	/* EN0_RXCR: runts, broadcasts, no multicast, no errors, irq active high */
+#define E8390_RXOFF		0x60	/* EN0_RXCR: Accept no packets */
+#else
+#define E8390_RXCONFIG		0x06	/* EN0_RXCR: runts, broadcasts, no multicast, no errors */
 #define E8390_RXOFF		0x20	/* EN0_RXCR: Accept no packets */
+#endif
+
+
 #define E8390_TXCONFIG		0x00	/* EN0_TXCR: Normal transmit mode */
 #define E8390_TXOFF		0x02	/* EN0_TXCR: Transmitter off */
 
@@ -132,6 +143,47 @@ struct ei_device {
 
 #elif defined(CONFIG_ARM_ETHERH) || defined(CONFIG_ARM_ETHERH_MODULE)
 #define EI_SHIFT(x)    (ei_local->reg_offset[x])
+
+
+#elif defined(COMPILE_ASIX)
+
+#if defined (CONFIG_SSA_W3)
+
+#define EI_SHIFT(x) (((x) + (((x) == 0x10) ? 0x0 : 0x20)) << 6)
+
+#elif defined (CONFIG_PNX0106_WSA)          || \
+      defined (CONFIG_PNX0106_LAGUNA_REVA)  || \
+      defined (CONFIG_PNX0106_LPAS1)        || \
+      defined (CONFIG_PNX0106_LDMA1)        || \
+      defined (CONFIG_PNX0106_RSS1)         || \
+      defined (CONFIG_PNX0106_RSC1)         || \
+      defined (CONFIG_PNX0106_W6)           || \
+      defined (CONFIG_PNX0106_HASLI7)       || \
+      defined (CONFIG_PNX0106_HACLI7)       || \
+      defined (CONFIG_PNX0106_MCIH)       || \
+      defined (CONFIG_PNX0106_MCI)       || \
+      defined (CONFIG_PNX0106_WMA100)
+
+#define EI_SHIFT(x) (((x) + (((x) == 0x10) ? 0x0 : 0x20)) << 7)
+
+#else
+#define HAS_AX88796_ADDRESS_SHIFT 6
+#define EI_SHIFT(x) (((x) + (((x) == 0x10) ? 0x0 : 0x20)) << HAS_AX88796_ADDRESS_SHIFT)
+#endif
+
+
+#if 1
+#undef inb
+#undef inb_p
+#undef outb
+#undef outb_p
+
+#define inb(port)         __raw_readw(port)
+#define outb(val,port)    __raw_writew(val, port)
+#define inb_p(port)       __raw_readw(port)
+#define outb_p(val,port)  __raw_writew(val, port)
+#endif
+
 #else
 #define EI_SHIFT(x)	(x)
 #endif

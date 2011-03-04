@@ -576,12 +576,12 @@ static void __insert_into_lru_list(struct buffer_head * bh, int blist)
 
 	if(!*bhp) {
 		*bhp = bh;
-		bh->b_prev_free = bh;
+		WRITE_FIX(bh->b_prev_free, bh);
 	}
-	bh->b_next_free = *bhp;
-	bh->b_prev_free = (*bhp)->b_prev_free;
-	(*bhp)->b_prev_free->b_next_free = bh;
-	(*bhp)->b_prev_free = bh;
+	WRITE_FIX(bh->b_next_free, *bhp);
+	WRITE_FIX(bh->b_prev_free, (*bhp)->b_prev_free);
+	WRITE_FIX((*bhp)->b_prev_free->b_next_free, bh);
+	WRITE_FIX((*bhp)->b_prev_free, bh);
 	nr_buffers_type[blist]++;
 	size_buffers_type[blist] += bh->b_size;
 }
@@ -593,15 +593,16 @@ static void __remove_from_lru_list(struct buffer_head * bh)
 		struct buffer_head *prev = bh->b_prev_free;
 		int blist = bh->b_list;
 
-		prev->b_next_free = next;
-		next->b_prev_free = prev;
+		WRITE_FIX(prev->b_next_free, next);
+		WRITE_FIX(next->b_prev_free, prev);
 		if (lru_list[blist] == bh) {
 			if (next == bh)
 				next = NULL;
 			lru_list[blist] = next;
 		}
-		bh->b_next_free = NULL;
-		bh->b_prev_free = NULL;
+
+		WRITE_FIX(bh->b_next_free, NULL);
+		WRITE_FIX(bh->b_prev_free, NULL);
 		nr_buffers_type[blist]--;
 		size_buffers_type[blist] -= bh->b_size;
 	}
@@ -796,9 +797,9 @@ static void free_more_memory(void)
 
 void init_buffer(struct buffer_head *bh, bh_end_io_t *handler, void *private)
 {
-	bh->b_list = BUF_CLEAN;
-	bh->b_end_io = handler;
-	bh->b_private = private;
+	WRITE_FIX(bh->b_list, BUF_CLEAN);
+	WRITE_FIX(bh->b_end_io, handler);
+	WRITE_FIX(bh->b_private, private);
 }
 
 void end_buffer_io_async(struct buffer_head * bh, int uptodate)
@@ -993,8 +994,40 @@ void invalidate_inode_buffers(struct inode *inode)
 	spin_lock(&lru_list_lock);
 	while ((entry = inode->i_dirty_buffers.next) != &inode->i_dirty_buffers)
 		remove_inode_queue(BH_ENTRY(entry));
+#if 0
 	while ((entry = inode->i_dirty_data_buffers.next) != &inode->i_dirty_data_buffers)
 		remove_inode_queue(BH_ENTRY(entry));
+#else
+	while ((entry = inode->i_dirty_data_buffers.next) != &inode->i_dirty_data_buffers) {
+		struct buffer_head *bh = BH_ENTRY(entry);
+		if (test_bit (BH_Attached, &bh->b_state)) {
+			list_del (entry);
+			clear_bit (BH_Attached, &bh->b_state);
+		}
+		else {
+			/*
+			   This case (ie a buffer head without the BH_Attached bit set)
+			   shouldn't happen... but sometimes does on the PNX0106 during
+			   heavy HDD activity or near the end of dbench runs. When it
+			   happens, it hangs the kernel.
+			   Calling list_del on the entry doesn't work (the entry without
+			   the BH_Attached bit seems to have at least one NULL ->next or
+			   ->previous pointer, so list_del causes a crash).
+			   Leaving the inode with buffers attached doesn't work either
+			   (it's caught as a bug later on in destory_inode()).
+			   Therefore, we re-initialising the inode i_dirty_data_buffers
+			   list to empty it - which seems to work...
+			   
+			   Note that this issue only seems to happen when
+			   invalidate_inode_buffers() is called from clear_inode(), not
+			   when called from invalidate_list().
+			*/
+			printk ("%s: forcefully ditching all dirty data buffers from inode...\n", __FUNCTION__);
+			INIT_LIST_HEAD(&inode->i_dirty_data_buffers);
+			break;
+		}
+	}
+#endif
 	spin_unlock(&lru_list_lock);
 }
 
@@ -1213,10 +1246,13 @@ static void __put_unused_buffer_head(struct buffer_head * bh)
 	} else {
 		bh->b_dev = B_FREE;
 		bh->b_blocknr = -1;
-		bh->b_this_page = NULL;
 
-		nr_unused_buffer_heads++;
-		bh->b_next_free = unused_list;
+		WRITE_FIX(bh->b_this_page, NULL);
+		{
+			typeof(nr_unused_buffer_heads) _tmp = nr_unused_buffer_heads + 1;
+			WRITE_FIX(nr_unused_buffer_heads, _tmp);
+		}
+		WRITE_FIX(bh->b_next_free, unused_list);
 		unused_list = bh;
 	}
 }
@@ -1254,7 +1290,8 @@ struct buffer_head * get_unused_buffer_head(int async)
 	 */
 	if((bh = kmem_cache_alloc(bh_cachep, SLAB_NOFS)) != NULL) {
 		bh->b_blocknr = -1;
-		bh->b_this_page = NULL;
+
+		WRITE_FIX(bh->b_this_page, NULL);
 		return bh;
 	}
 
@@ -1313,20 +1350,20 @@ try_again:
 		if (!bh)
 			goto no_grow;
 
-		bh->b_dev = NODEV;
-		bh->b_this_page = head;
-		head = bh;
+		WRITE_FIX(bh->b_dev, NODEV);
+		WRITE_FIX(bh->b_this_page, head);
+		WRITE_FIX(head, bh);
 
-		bh->b_state = 0;
-		bh->b_next_free = NULL;
-		bh->b_pprev = NULL;
+		WRITE_FIX(bh->b_state, 0);
+		WRITE_FIX(bh->b_next_free, NULL);
+		WRITE_FIX(bh->b_pprev, NULL);
 		atomic_set(&bh->b_count, 0);
-		bh->b_size = size;
+		WRITE_FIX(bh->b_size, size);
 
 		set_bh_page(bh, page, offset);
 
-		bh->b_list = BUF_CLEAN;
-		bh->b_end_io = NULL;
+		WRITE_FIX(bh->b_list, BUF_CLEAN);
+		WRITE_FIX(bh->b_end_io, NULL);
 	}
 	return head;
 /*
@@ -1477,8 +1514,9 @@ void create_empty_buffers(struct page *page, kdev_t dev, unsigned long blocksize
 		tail = bh;
 		bh = bh->b_this_page;
 	} while (bh);
-	tail->b_this_page = head;
-	page->buffers = head;
+
+	WRITE_FIX(tail->b_this_page, head);
+	WRITE_FIX(page->buffers, head);
 	page_cache_get(page);
 }
 EXPORT_SYMBOL(create_empty_buffers);
@@ -2379,7 +2417,8 @@ int brw_kiovec(int rw, int nr, struct kiobuf *iovec[],
 
 				tmp->b_size = size;
 				set_bh_page(tmp, map, offset);
-				tmp->b_this_page = tmp;
+
+				WRITE_FIX(tmp->b_this_page, tmp);
 
 				init_buffer(tmp, end_buffer_io_kiobuf, iobuf);
 				tmp->b_dev = dev;
@@ -2522,8 +2561,9 @@ static inline void link_dev_buffers(struct page * page, struct buffer_head *head
 		tail = bh;
 		bh = bh->b_this_page;
 	} while (bh);
-	tail->b_this_page = head;
-	page->buffers = head;
+
+	WRITE_FIX(tail->b_this_page, head);
+	WRITE_FIX(page->buffers, head);
 	page_cache_get(page);
 }
 
@@ -2766,7 +2806,8 @@ cleaned_buffers_try_again:
 	wake_up(&buffer_wait);
 
 	/* And free the page */
-	page->buffers = NULL;
+
+	WRITE_FIX(page->buffers, NULL);
 	page_cache_release(page);
 	write_unlock(&hash_table_lock);
 	spin_unlock(&lru_list_lock);

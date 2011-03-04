@@ -448,6 +448,28 @@ static int usb_stor_control_thread(void * __us)
 					/* we've got a command, let's do it! */
 					US_DEBUG(usb_stor_show_command(us->srb));
 					us->proto_handler(us->srb, us);
+
+					/* special case... retry READ_CAPACITY commands if they seem to succeed, but return a capacity of 0 */
+					if (((us->srb->cmnd[0] == READ_CAPACITY) && (us->srb->result == 0)))
+					{
+						unsigned char *pbuf = (unsigned char *) us->srb->request_buffer;
+
+						if (!(pbuf[0] || pbuf[1] || pbuf[2] || pbuf[3]))
+						{
+							printk (KERN_INFO USB_STORAGE "request_buffer: %02x %02x %02x %02x %02x %02x %02x %02x\n"
+									  USB_STORAGE "Reissue READ_CAPACITY command\n",
+										      pbuf[0], pbuf[1], pbuf[2], pbuf[3],
+										      pbuf[4], pbuf[5], pbuf[6], pbuf[7]);
+
+							memset (us->srb->cmnd, 0, 6);
+							us->srb->cmnd[0] = TEST_UNIT_READY;
+							us->proto_handler(us->srb, us);
+
+							memset (us->srb->cmnd, 0, 10);
+							us->srb->cmnd[0] = READ_CAPACITY;
+							us->proto_handler(us->srb, us);
+						}
+					}
 				}
 			}
 
@@ -994,7 +1016,16 @@ static void * storage_probe(struct usb_device *dev, unsigned int ifnum,
 		 * the host controller thread in us_detect.  But how else are
 		 * we to do it?
 		 */
-		(struct us_data *)ss->htmplt.proc_dir = ss; 
+		ss->htmplt.proc_dir = (void *)ss; 
+
+		/* According to the technical support people at Genesys Logic,
+		 * devices using their chips have problems transferring more
+		 * than 32 KB at a time.  In practice people have found that
+		 * 64 KB works okay and that's what Windows does.  But we'll
+		 * be conservative.
+		 */
+		if (ss->pusb_dev->descriptor.idVendor == USB_VENDOR_ID_GENESYS)
+			ss->htmplt.max_sectors = 64;
 
 		/* Just before we start our control thread, initialize
 		 * the device if it needs initialization */

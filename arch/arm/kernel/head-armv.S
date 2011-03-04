@@ -1,7 +1,7 @@
 /*
  *  linux/arch/arm/kernel/head-armv.S
  *
- *  Copyright (C) 1994-1999 Russell King
+ *  Copyright (C) 1994-2003 Russell King
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -131,16 +131,30 @@ __entry:
 		mov	r1, #MACH_TYPE_L7200
 #endif
 
+#if defined(CONFIG_ARCH_SSA)
+/*
+ * FIXME - No bootloader, so manually set 'r1' with our architecture number.
+ */
+		mov	r1, #MACH_TYPE_SSA
+#endif
+
+#if defined(CONFIG_ARCH_PNX0106)
+/*
+ * FIXME - No bootloader, so manually set 'r1' with our architecture number.
+ */
+		mov	r1, #MACH_TYPE_PNX0106
+#endif
+
 		mov	r0, #F_BIT | I_BIT | MODE_SVC	@ make sure svc mode
 		msr	cpsr_c, r0			@ and all irqs disabled
 		bl	__lookup_processor_type
 		teq	r10, #0				@ invalid processor?
 		moveq	r0, #'p'			@ yes, error 'p'
-		beq	__error
+		bleq	__error
 		bl	__lookup_architecture_type
 		teq	r7, #0				@ invalid architecture?
 		moveq	r0, #'a'			@ yes, error 'a'
-		beq	__error
+		bleq	__error
 		bl	__create_page_tables
 		adr	lr, __ret			@ return address
 		add	pc, r10, #12			@ initialise processor
@@ -163,10 +177,10 @@ __switch_data:	.long	__mmap_switched
  */
 		.type	__ret, %function
 __ret:		ldr	lr, __switch_data
-		mcr	p15, 0, r0, c1, c0
-		mrc	p15, 0, r0, c1, c0, 0		@ read it back.
-		mov	r0, r0
-		mov	r0, r0
+		mcr	p15, 0, r0, c1, c0, 0
+		mrc	p15, 0, r3, c0, c0, 0
+		mov	r3, r3
+		mov	r3, r3
 		mov	pc, lr
 
 /*
@@ -214,6 +228,11 @@ __mmap_switched:
  */
 __create_page_tables:
 		pgtbl	r4, r5				@ page table address
+#if defined(CONFIG_CPU_DCACHE_DISABLE)
+		bic	r8, r8, #0x00c			@ clear B, C
+#elif defined(CONFIG_CPU_DCACHE_WRITETHROUGH)
+		bic	r8, r8, #0x004			@ clear B
+#endif
 
 		/*
 		 * Clear the 16K level 1 swapper page table

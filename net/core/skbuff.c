@@ -109,7 +109,65 @@ void skb_under_panic(struct sk_buff *skb, int sz, void *here)
 	BUG();
 }
 
-static __inline__ struct sk_buff *skb_head_from_pool(void)
+
+#if 1
+
+static struct sk_buff *__skb_dequeue_local_debug_version (struct sk_buff_head *list)
+{
+	struct sk_buff *next, *prev, *result;
+
+	prev = (struct sk_buff *) list;
+	next = prev->next;
+	result = NULL;
+	if (next != prev) {
+		result = next;
+		next = next->next;
+
+		/*
+		   Wild guess... The Broadcom driver writes a debug message into
+		   an skb. Try to detect that particular special case before it
+		   segfaults...
+		*/
+
+		if (((unsigned long) (next)) == 0x313a3030) {
+			int i;
+			printk ("\n\nskb_head_from_pool: next corrupt !! (See PR2131)\n");
+			for (i = 0; i < 128; i++) {
+				if (i && ((i % 16) == 0))
+					printk ("\n");
+				printk ("0x%02x,", ((unsigned char *) next)[i]);
+			}
+		}
+
+		list->qlen--;
+		next->prev = prev;
+		prev->next = next;
+		result->next = NULL;
+		result->prev = NULL;
+		result->list = NULL;
+	}
+	return result;
+}
+
+static struct sk_buff *skb_head_from_pool(void)
+{
+	struct sk_buff_head *list = &skb_head_pool[smp_processor_id()].list;
+
+	if (skb_queue_len(list)) {
+		struct sk_buff *skb;
+		unsigned long flags;
+
+		local_irq_save(flags);
+		skb = __skb_dequeue_local_debug_version(list);
+		local_irq_restore(flags);
+		return skb;
+	}
+	return NULL;
+}
+
+#else
+
+static struct sk_buff *skb_head_from_pool(void)
 {
 	struct sk_buff_head *list = &skb_head_pool[smp_processor_id()].list;
 
@@ -125,7 +183,9 @@ static __inline__ struct sk_buff *skb_head_from_pool(void)
 	return NULL;
 }
 
-static __inline__ void skb_head_to_pool(struct sk_buff *skb)
+#endif
+
+static void skb_head_to_pool(struct sk_buff *skb)
 {
 	struct sk_buff_head *list = &skb_head_pool[smp_processor_id()].list;
 

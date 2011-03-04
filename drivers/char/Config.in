@@ -20,10 +20,10 @@ if [ "$CONFIG_SERIAL" = "y" ]; then
    if [ "$CONFIG_IA64" = "y" ]; then
       bool '  Support for serial port described by EFI HCDP table' CONFIG_SERIAL_HCDP
    fi
-   if [ "$CONFIG_ARCH_ACORN" = "y" ]; then
-      tristate '   Atomwide serial port support' CONFIG_ATOMWIDE_SERIAL
-      tristate '   Dual serial port support' CONFIG_DUALSP_SERIAL
-   fi
+fi
+if [ "$CONFIG_ARCH_ACORN" = "y" ]; then
+   dep_tristate '   Atomwide serial port support' CONFIG_ATOMWIDE_SERIAL $CONFIG_SERIAL
+   dep_tristate '   Dual serial port support' CONFIG_DUALSP_SERIAL $CONFIG_SERIAL
 fi
 dep_mbool 'Extended dumb serial driver options' CONFIG_SERIAL_EXTENDED $CONFIG_SERIAL
 if [ "$CONFIG_SERIAL_EXTENDED" = "y" ]; then
@@ -132,18 +132,6 @@ if [ "$CONFIG_SERIAL_NONSTANDARD" = "y" ]; then
 	 bool '  SGI SN2 IOC4 serial port support' CONFIG_SGI_IOC4_SERIAL
       fi
    fi
-fi
-if [ "$CONFIG_EXPERIMENTAL" = "y" -a "$CONFIG_ZORRO" = "y" ]; then
-   tristate 'Commodore A2232 serial support (EXPERIMENTAL)' CONFIG_A2232
-fi
-if [ "$CONFIG_FOOTBRIDGE" = "y" ]; then
-   bool 'DC21285 serial port support' CONFIG_SERIAL_21285
-   if [ "$CONFIG_SERIAL_21285" = "y" ]; then
-      if [ "$CONFIG_OBSOLETE" = "y" ]; then
-         bool '  Use /dev/ttyS0 device (OBSOLETE)' CONFIG_SERIAL_21285_OLD
-      fi
-      bool '  Console on DC21285 serial port' CONFIG_SERIAL_21285_CONSOLE
-   fi
    if [ "$CONFIG_PARISC" = "y" ]; then
      bool '  PDC software console support' CONFIG_PDC_CONSOLE
    fi
@@ -168,6 +156,16 @@ fi
 if [ "$CONFIG_CPU_VR41XX" = "y" ]; then
    bool 'NEC VR4100 series Keyboard Interface Unit Support ' CONFIG_VR41XX_KIU
 fi
+if [ "$CONFIG_ARCH_AT91RM9200" = "y" ]; then
+  tristate 'AT91RM9200 SPI device interface' CONFIG_AT91_SPIDEV
+fi
+
+source drivers/serial/Config.in
+
+if [ "$CONFIG_ARCH_ANAKIN" = "y" ]; then
+   tristate 'Anakin touchscreen support' CONFIG_TOUCHSCREEN_ANAKIN
+fi
+
 bool 'Unix98 PTY support' CONFIG_UNIX98_PTYS
 if [ "$CONFIG_UNIX98_PTYS" = "y" ]; then
    int 'Maximum number of Unix98 PTYs in use (0-2048)' CONFIG_UNIX98_PTY_COUNT 256
@@ -189,6 +187,12 @@ if [ "$CONFIG_ALL_PPC" = "y" ]; then
 fi
 
 source drivers/i2c/Config.in
+
+if [ "$CONFIG_I2C" != "n" ]; then
+    dep_tristate '  DS1307 RTC' CONFIG_I2C_DS1307 $CONFIG_I2C
+fi
+
+source drivers/l3/Config.in
 
 mainmenu_option next_comment
 comment 'Mice'
@@ -245,11 +249,13 @@ if [ "$CONFIG_WATCHDOG" != "n" ]; then
    tristate '  ALi M7101 PMU Watchdog Timer' CONFIG_ALIM7101_WDT
    tristate '  AMD "Elan" SC520 Watchdog Timer' CONFIG_SC520_WDT
    tristate '  Berkshire Products PC Watchdog' CONFIG_PCWATCHDOG
-   if [ "$CONFIG_FOOTBRIDGE" = "y" ]; then
-      tristate '  DC21285 watchdog' CONFIG_21285_WATCHDOG
-      if [ "$CONFIG_ARCH_NETWINDER" = "y" ]; then
-         tristate '  NetWinder WB83C977 watchdog' CONFIG_977_WATCHDOG
-      fi
+   if [ "$CONFIG_ARM" = "y" ]; then
+      dep_tristate '  DC21285 watchdog' CONFIG_21285_WATCHDOG $CONFIG_FOOTBRIDGE
+      dep_tristate '  NetWinder WB83C977 watchdog' CONFIG_977_WATCHDOG $CONFIG_ARCH_NETWINDER
+      dep_tristate '  SA1100 watchdog' CONFIG_SA1100_WATCHDOG $CONFIG_ARCH_SA1100
+      dep_tristate '  EPXA watchdog' CONFIG_EPXA_WATCHDOG $CONFIG_ARCH_CAMELOT
+      dep_tristate '  Omaha watchdog' CONFIG_OMAHA_WATCHDOG $CONFIG_ARCH_OMAHA
+      dep_tristate '  AT91RM9200 watchdog' CONFIG_AT91_WATCHDOG $CONFIG_ARCH_AT91RM9200
    fi
    tristate '  Eurotech CPU-1220/1410 Watchdog Timer' CONFIG_EUROTECH_WDT
    tristate '  IB700 SBC Watchdog Timer' CONFIG_IB700_WDT
@@ -325,6 +331,20 @@ fi
 if [ "$CONFIG_TOSHIBA_RBTX4927" = "y" -o "$CONFIG_TOSHIBA_JMR3927" = "y" ]; then
    tristate 'Dallas DS1742 RTC support' CONFIG_DS1742
 fi
+if [ "$CONFIG_ARCH_SA1100" = "y" ]; then
+   tristate 'SA1100 Real Time Clock' CONFIG_SA1100_RTC
+fi
+if [ "$CONFIG_ARCH_OMAHA" = "y" ]; then
+   tristate 'Omaha Real Time Clock' CONFIG_OMAHA_RTC
+fi
+if [ "$CONFIG_ARCH_AT91RM9200" = "y" ]; then
+   tristate 'AT91RM9200 Real Time Clock' CONFIG_AT91_RTC
+fi
+
+#if [ "$CONFIG_ARCH_SSA" = "y" ]; then
+#  define_bool CONFIG_SSA_XFER y
+#fi
+
 
 tristate 'Double Talk PC internal speech card support' CONFIG_DTLK
 tristate 'Siemens R3964 line discipline' CONFIG_R3964
@@ -399,6 +419,12 @@ fi
 if [ "$CONFIG_X86" = "y" ]; then
    tristate 'ACP Modem (Mwave) support' CONFIG_MWAVE
    dep_tristate 'HP OB600 C/CT Pop-up mouse support' CONFIG_OBMOUSE $CONFIG_INPUT_MOUSEDEV
+fi
+
+if [ "$CONFIG_PNX0106_LAGUNA_REVA" = "y" -o \
+     "$CONFIG_PNX0106_WMA100"      = "y"    ]
+then
+   bool 'GPIO based 3x3 matrix keypad driver' CONFIG_MELODY_KEYPAD
 fi
 
 endmenu

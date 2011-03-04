@@ -208,6 +208,30 @@ int scsi_init_cmd_errh(Scsi_Cmnd * SCpnt)
 }
 
 /*
+ * Function:	scsi_setup_cmd_retry()
+ *
+ * Purpose:	Restore the command state for a retry
+ *
+ * Arguments:	SCpnt	- command to be restored
+ *
+ * Returns:	Nothing
+ *
+ * Notes:	Immediately prior to retrying a command, we need
+ *		to restore certain fields that we saved above.
+ */
+void scsi_setup_cmd_retry(Scsi_Cmnd *SCpnt)
+{
+	memcpy((void *) SCpnt->cmnd, (void *) SCpnt->data_cmnd,
+	       sizeof(SCpnt->data_cmnd));
+	SCpnt->request_buffer = SCpnt->buffer;
+	SCpnt->request_bufflen = SCpnt->bufflen;
+	SCpnt->use_sg = SCpnt->old_use_sg;
+	SCpnt->cmd_len = SCpnt->old_cmd_len;
+	SCpnt->sc_data_direction = SCpnt->sc_old_data_direction;
+	SCpnt->underflow = SCpnt->old_underflow;
+}
+
+/*
  * Function:    scsi_queue_next_request()
  *
  * Purpose:     Handle post-processing of completed commands.
@@ -379,7 +403,7 @@ static Scsi_Cmnd *__scsi_end_request(Scsi_Cmnd * SCpnt,
 			nsect = bh->b_size >> 9;
 			blk_finished_io(nsect);
 			blk_finished_sectors(req, nsect);
-			req->bh = bh->b_reqnext;
+			WRITE_FIX(req->bh, bh->b_reqnext);
 			bh->b_reqnext = NULL;
 			sectors -= nsect;
 			bh->b_end_io(bh, uptodate);
@@ -731,7 +755,7 @@ void scsi_io_completion(Scsi_Cmnd * SCpnt, int good_sectors,
 			printk("scsi%d: ERROR on channel %d, id %d, lun %d, CDB: ",
 			       SCpnt->host->host_no, (int) SCpnt->channel,
 			       (int) SCpnt->target, (int) SCpnt->lun);
-			print_command(SCpnt->cmnd);
+			print_command(SCpnt->data_cmnd);
 			print_sense("sd", SCpnt);
 			SCpnt = scsi_end_request(SCpnt, 0, block_sectors);
 			return;
@@ -906,8 +930,17 @@ void scsi_request_fn(request_queue_t * q)
 		 * space.   Technically the error handling thread should be
 		 * doing this crap, but the error handler isn't used by
 		 * most hosts.
+		 *
+		 * (rmk)
+		 * Trying to lock the door can cause deadlocks.  We therefore
+		 * only use this for old hosts; our door locking is now done
+		 * by the error handler in scsi_restart_operations for new
+		 * eh hosts.
+		 *
+		 * Note that we don't clear was_reset here; this is used by
+		 * st.c, and either one or other has to die.
 		 */
-		if (SDpnt->was_reset) {
+		if (SHpnt->hostt->use_new_eh_code == 0 && SDpnt->was_reset) {
 			/*
 			 * We need to relock the door, but we might
 			 * be in an interrupt handler.  Only do this
@@ -918,7 +951,7 @@ void scsi_request_fn(request_queue_t * q)
 			 * this work.
 			 */
 			SDpnt->was_reset = 0;
-			if (SDpnt->removable && !in_interrupt()) {
+			if (SDpnt->removable && SDpnt->locked && !in_interrupt()) {
 				spin_unlock_irq(&io_request_lock);
 				scsi_ioctl(SDpnt, SCSI_IOCTL_DOORLOCK, 0);
 				spin_lock_irq(&io_request_lock);

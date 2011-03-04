@@ -32,6 +32,11 @@
 #include <linux/netdevice.h>
 #include <linux/ethtool.h>
 #include <linux/mii.h>
+#include <linux/config.h>
+
+#if defined (CONFIG_DEBUG_PANIC_POSTMORTEM)
+extern void show_pc_table (void);
+#endif
 
 int mii_ethtool_gset(struct mii_if_info *mii, struct ethtool_cmd *ecmd)
 {
@@ -225,8 +230,12 @@ unsigned int mii_check_media (struct mii_if_info *mii,
 	/* no carrier, nothing much to do */
 	if (!new_carrier) {
 		netif_carrier_off(mii->dev);
-		if (ok_to_print)
+		if (ok_to_print){
 			printk(KERN_INFO "%s: link down\n", mii->dev->name);
+#if defined (CONFIG_DEBUG_PANIC_POSTMORTEM)
+			show_pc_table();	//alex: to tackle PR2311
+#endif			
+		}
 		return 0; /* duplex did not change */
 	}
 

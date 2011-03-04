@@ -115,7 +115,7 @@ __syscall_start:
 		.long	SYMBOL_NAME(sys_ni_syscall)		/* was sys_profil */
 		.long	SYMBOL_NAME(sys_statfs)
 /* 100 */	.long	SYMBOL_NAME(sys_fstatfs)
-		.long	SYMBOL_NAME(sys_ni_syscall)
+		.long	SYMBOL_NAME(sys_ni_syscall)		/* 101 was sys_ioperm */
 		.long	SYMBOL_NAME(sys_socketcall)
 		.long	SYMBOL_NAME(sys_syslog)
 		.long	SYMBOL_NAME(sys_setitimer)
@@ -126,7 +126,7 @@ __syscall_start:
 		.long	SYMBOL_NAME(sys_ni_syscall)		/* was sys_uname */
 /* 110 */	.long	SYMBOL_NAME(sys_ni_syscall)		/* was sys_iopl */
 		.long	SYMBOL_NAME(sys_vhangup)
-		.long	SYMBOL_NAME(sys_ni_syscall)
+		.long	SYMBOL_NAME(sys_ni_syscall)		/* 112 was sys_idle */
 		.long	SYMBOL_NAME(sys_syscall)		/* call a syscall */
 		.long	SYMBOL_NAME(sys_wait4)
 /* 115 */	.long	SYMBOL_NAME(sys_swapoff)
@@ -137,7 +137,7 @@ __syscall_start:
 /* 120 */	.long	SYMBOL_NAME(sys_clone_wapper)
 		.long	SYMBOL_NAME(sys_setdomainname)
 		.long	SYMBOL_NAME(sys_newuname)
-		.long	SYMBOL_NAME(sys_ni_syscall)
+		.long	SYMBOL_NAME(sys_ni_syscall)		/* 123 was sys_modify_ldt */
 		.long	SYMBOL_NAME(sys_adjtimex)
 /* 125 */	.long	SYMBOL_NAME(sys_mprotect)
 		.long	SYMBOL_NAME(sys_sigprocmask)
@@ -180,7 +180,7 @@ __syscall_start:
 		.long	SYMBOL_NAME(sys_arm_mremap)
 		.long	SYMBOL_NAME(sys_setresuid16)
 /* 165 */	.long	SYMBOL_NAME(sys_getresuid16)
-		.long	SYMBOL_NAME(sys_ni_syscall)
+		.long	SYMBOL_NAME(sys_ni_syscall)		/* 166 was sys_vm86 */
 		.long	SYMBOL_NAME(sys_query_module)
 		.long	SYMBOL_NAME(sys_poll)
 		.long	SYMBOL_NAME(sys_nfsservctl)

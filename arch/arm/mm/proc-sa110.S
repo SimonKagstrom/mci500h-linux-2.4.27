@@ -86,12 +86,12 @@ Lclean_switch:	.long	0
 	.align	5
 ENTRY(cpu_sa110_data_abort)
 ENTRY(cpu_sa1100_data_abort)
-	mrc	p15, 0, r3, c5, c0, 0		@ get FSR
+	mrc	p15, 0, r1, c5, c0, 0		@ get FSR
 	mrc	p15, 0, r0, c6, c0, 0		@ get FAR
-	ldr	r1, [r2]			@ read aborted instruction
-	and	r3, r3, #255
-	tst	r1, r1, lsr #21			@ C = bit 20
-	sbc	r1, r1, r1			@ r1 = C - 1
+	ldr	r3, [r2]			@ read aborted instruction
+	bic	r1, r1, #1 << 11 | 1 << 10	@ clear bits 11 and 10 of FSR
+	tst	r3, #1 << 20			@ check write
+	orreq	r1, r1, #1 << 11
 	mov	pc, lr
 
 /*
@@ -551,7 +551,7 @@ ENTRY(cpu_sa1100_set_pte)
 	bic	r2, r2, #3
 	orr	r2, r2, #HPTE_TYPE_SMALL
 
-	tst	r1, #LPTE_USER | LPTE_EXEC	@ User or Exec?
+	tst	r1, #LPTE_USER			@ User?
 	orrne	r2, r2, #HPTE_AP_READ
 
 	tst	r1, #LPTE_WRITE | LPTE_DIRTY	@ Write and Dirty?

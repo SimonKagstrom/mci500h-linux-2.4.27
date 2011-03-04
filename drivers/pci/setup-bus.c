@@ -12,6 +12,8 @@
 /*
  * Nov 2000, Ivan Kokshaysky <ink@jurassic.park.msu.ru>
  *	     PCI-PCI bridges cleanup, sorted resource allocation.
+ * May 2001, Russell King <rmk@arm.linux.org.uk>
+ *           Allocate prefetchable memory regions where available.
  * Feb 2002, Ivan Kokshaysky <ink@jurassic.park.msu.ru>
  *	     Converted to allocation in 3 passes, which gives
  *	     tighter packing. Prefetchable range support.
@@ -160,8 +162,10 @@ pci_setup_bridge(struct pci_bus *bus)
 	pci_write_config_dword(bridge, PCI_PREF_MEMORY_BASE, l);
 
 	/* Check if we have VGA behind the bridge.
-	   Enable ISA in either case (FIXME!). */
-	l = (bus->resource[0]->flags & IORESOURCE_BUS_HAS_VGA) ? 0x0c : 0x04;
+	   Enable ISA in either case. */
+	l = (bus->resource[0]->flags & IORESOURCE_BUS_HAS_VGA) ?
+		PCI_BRIDGE_CTL_VGA | PCI_BRIDGE_CTL_NO_ISA :
+		PCI_BRIDGE_CTL_NO_ISA;
 	pci_write_config_word(bridge, PCI_BRIDGE_CONTROL, l);
 }
 

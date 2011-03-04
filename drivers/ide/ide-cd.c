@@ -505,6 +505,12 @@ void cdrom_analyze_sense_data(ide_drive_t *drive,
 						sense->asc == 0x3a)))
 		return;
 
+	/* Suppress printing of 'not ready' when disc isn't present (?) */
+
+	if ((sense->sense_key == NOT_READY) && (sense->asc == 6))
+		return;
+
+
 	printk("%s: error code: 0x%02x  sense_key: 0x%02x  asc: 0x%02x  ascq: 0x%02x\n",
 		drive->name,
 		sense->error_code, sense->sense_key,
@@ -2570,7 +2576,23 @@ int ide_cdrom_drive_status (struct cdrom_device_info *cdi, int slot_nr)
 			if (sense.asc == 0x3a && sense.ascq == 1)
 				return CDS_NO_DISC;
 			else
-				return CDS_TRAY_OPEN;
+				//return CDS_TRAY_OPEN;
+			{
+				//lcc, add mode_sense to find Media Type Code
+				static struct cdrom_generic_command cgc;
+				char buffer[16];
+				int stat;
+
+				init_cdrom_command (&cgc, buffer, sizeof(buffer), CGC_DATA_UNKNOWN);
+				if ((stat = cdrom_mode_sense(cdi, &cgc, GPMODE_CDROM_PAGE, 0)))
+					return CDS_TRAY_OPEN;  // if failed return TRAY_OPEN??
+
+ 				if (buffer[2] == 0x70)
+					return CDS_NO_DISC;
+				else 
+					return CDS_TRAY_OPEN;
+
+			}
 		}
 
 		return CDS_DRIVE_NOT_READY;

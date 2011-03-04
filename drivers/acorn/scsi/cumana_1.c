@@ -153,20 +153,20 @@ int cumanascsi_detect(Scsi_Host_Template * tpnt)
         ((struct NCR5380_hostdata *)instance->hostdata)->ctrl = 0;
         outb(0x00, instance->io_port - 577);
 
-	if (instance->irq != IRQ_NONE)
+	if (instance->irq != SCSI_IRQ_NONE)
 	    if (request_irq(instance->irq, do_cumanascsi_intr, SA_INTERRUPT, "CumanaSCSI-1", NULL)) {
 		printk("scsi%d: IRQ%d not free, interrupts disabled\n",
 		    instance->host_no, instance->irq);
-		instance->irq = IRQ_NONE;
+		instance->irq = SCSI_IRQ_NONE;
 	    }
 
-	if (instance->irq == IRQ_NONE) {
+	if (instance->irq == SCSI_IRQ_NONE) {
 	    printk("scsi%d: interrupts not enabled. for better interactive performance,\n", instance->host_no);
 	    printk("scsi%d: please jumper the board for a free IRQ.\n", instance->host_no);
 	}
 
 	printk("scsi%d: at port %lX irq", instance->host_no, instance->io_port);
-	if (instance->irq == IRQ_NONE)
+	if (instance->irq == SCSI_IRQ_NONE)
 	    printk ("s disabled");
 	else
 	    printk (" %d", instance->irq);
@@ -185,7 +185,7 @@ int cumanascsi_release (struct Scsi_Host *shpnt)
 {
 	int i;
 
-	if (shpnt->irq != IRQ_NONE)
+	if (shpnt->irq != SCSI_IRQ_NONE)
 		free_irq (shpnt->irq, NULL);
 	if (shpnt->io_port)
 		release_region (shpnt->io_port, shpnt->n_io_port);

@@ -75,7 +75,11 @@ void __init fork_init(unsigned long mempages)
 	 * value: the thread structures can take up at most half
 	 * of memory.
 	 */
+#if THREAD_SIZE > PAGE_SIZE
 	max_threads = mempages / (THREAD_SIZE/PAGE_SIZE) / 8;
+#else
+	max_threads = (mempages * PAGE_SIZE) / (8 * THREAD_SIZE);
+#endif
 
 	init_task.rlim[RLIMIT_NPROC].rlim_cur = max_threads/2;
 	init_task.rlim[RLIMIT_NPROC].rlim_max = max_threads/2;
@@ -220,6 +224,7 @@ static inline int dup_mmap(struct mm_struct * mm)
 
 fail_nomem:
 	flush_tlb_mm(current->mm);
+	memc_update_mm(mm);
 	return retval;
 }
 
@@ -513,8 +518,17 @@ static int copy_files(unsigned long clone_flags, struct task_struct * tsk)
 
 	for (i = open_files; i != 0; i--) {
 		struct file *f = *old_fds++;
-		if (f)
+		if (f) {
 			get_file(f);
+		} else {
+			/*
+			 * The fd may be claimed in the fd bitmap but not yet
+			 * instantiated in the files array if a sibling thread
+			 * is partway through open().  So make sure that this
+			 * fd is available to the new process.
+			 */
+                        FD_CLR(open_files - i, newf->open_fds);
+		}
 		*new_fds++ = f;
 	}
 	read_unlock(&oldf->file_lock);

@@ -18,6 +18,8 @@
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  */
 
+#include <asm/hardware/serial_amba.h>
+
 #define AMBA_UART_DR	(*(volatile unsigned char *)0x16000000)
 #define AMBA_UART_LCRH	(*(volatile unsigned char *)0x16000008)
 #define AMBA_UART_LCRM	(*(volatile unsigned char *)0x1600000c)
@@ -30,21 +32,25 @@
  */
 static void puts(const char *s)
 {
+	/* Do nothing if the UART is not enabled. */
+	if (!(AMBA_UART_CR & AMBA_UARTCR_UARTEN))
+		return;
+
 	while (*s) {
-		while (AMBA_UART_FR & (1 << 5))
+		while (AMBA_UART_FR & AMBA_UARTFR_TXFF)
 			barrier();
 
 		AMBA_UART_DR = *s;
 
 		if (*s == '\n') {
-			while (AMBA_UART_FR & (1 << 5))
+			while (AMBA_UART_FR & AMBA_UARTFR_TXFF)
 				barrier();
 
 			AMBA_UART_DR = '\r';
 		}
 		s++;
 	}
-	while (AMBA_UART_FR & (1 << 3));
+	while (AMBA_UART_FR & AMBA_UARTFR_BUSY);
 }
 
 /*

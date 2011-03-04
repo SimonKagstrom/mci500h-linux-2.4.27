@@ -1,5 +1,5 @@
 /*
- * $Id: blkmtd.c,v 1.17 2003/01/24 13:00:24 dwmw2 Exp $
+ * $Id: blkmtd.c,v 1.20 2003/06/27 15:10:35 dwmw2 Exp $
  *
  * blkmtd.c - use a block device as a fake MTD
  *
@@ -143,7 +143,7 @@ static int read_pages(struct blkmtd_dev *dev, int pagenrs[], struct page **pagel
 	for(cnt = 0; cnt < pages; cnt++) {
 		page = grab_cache_page(dev->binding->bd_inode->i_mapping, pagenrs[cnt]);
 		pagelst[cnt] = page;
-		if(!PageUptodate(page)) {
+		if(!Page_Uptodate(page)) {
 				iobuf->blocks[iobuf->nr_pages] = pagenrs[cnt];
 				iobuf->maplist[iobuf->nr_pages++] = page;
 		}
@@ -912,7 +912,7 @@ static struct blkmtd_dev *add_device(char *devname, int readonly, int erase_size
 	dev->mtd_info.point = 0;
 	dev->mtd_info.unpoint = 0;
 	dev->mtd_info.priv = dev;
-	dev->mtd_info.module = THIS_MODULE;
+	dev->mtd_info.owner = THIS_MODULE;
 
 	list_add(&dev->list, &blkmtd_device_list);
 	if (add_mtd_device(&dev->mtd_info)) {

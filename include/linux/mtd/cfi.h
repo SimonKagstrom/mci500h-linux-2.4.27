@@ -1,13 +1,14 @@
 
 /* Common Flash Interface structures 
  * See http://support.intel.com/design/flash/technote/index.htm
- * $Id: cfi.h,v 1.32 2002/09/05 05:15:32 acurtis Exp $
+ * $Id: cfi.h,v 1.37 2003/10/22 18:18:41 thayne Exp $
  */
 
 #ifndef __MTD_CFI_H__
 #define __MTD_CFI_H__
 
 #include <linux/config.h>
+#include <linux/version.h>
 #include <linux/delay.h>
 #include <linux/types.h>
 #include <linux/interrupt.h>
@@ -260,7 +261,8 @@ struct cfi_pri_intelext {
   __u8  pri[3];
   __u8  MajorVersion;
   __u8  MinorVersion;
-  __u32 FeatureSupport;
+  __u32 FeatureSupport; /* if bit 31 is set then an additional __u32 feature
+			   block follows - FIXME - not currently supported */
   __u8  SuspendCmdSupport;
   __u16 BlkStatusRegMask;
   __u8  VccOptimal;
@@ -269,6 +271,25 @@ struct cfi_pri_intelext {
   __u16 ProtRegAddr;
   __u8  FactProtRegSize;
   __u8  UserProtRegSize;
+} __attribute__((packed));
+
+/* Vendor-Specific PRI for AMD/Fujitsu Extended Command Set (0x0002) */
+
+struct cfi_pri_amdstd {
+  __u8  pri[3];
+  __u8  MajorVersion;
+  __u8  MinorVersion;
+  __u8  SiliconRevision; /* bits 1-0: Address Sensitive Unlock */
+  __u8  EraseSuspend;
+  __u8  BlkProt;
+  __u8  TmpBlkUnprotect;
+  __u8  BlkProtUnprot;
+  __u8  SimultaneousOps;
+  __u8  BurstMode;
+  __u8  PageMode;
+  __u8  VppMin;
+  __u8  VppMax;
+  __u8  TopBottom;
 } __attribute__((packed));
 
 struct cfi_pri_query {
@@ -387,13 +408,13 @@ static inline cfi_word cfi_build_cmd(u_char cmd, struct map_info *map, struct cf
 static inline cfi_word cfi_read(struct map_info *map, __u32 addr)
 {
 	if (cfi_buswidth_is_1()) {
-		return map->read8(map, addr);
+		return map_read8(map, addr);
 	} else if (cfi_buswidth_is_2()) {
-		return map->read16(map, addr);
+		return map_read16(map, addr);
 	} else if (cfi_buswidth_is_4()) {
-		return map->read32(map, addr);
+		return map_read32(map, addr);
 	} else if (cfi_buswidth_is_8()) {
-		return map->read64(map, addr);
+		return map_read64(map, addr);
 	} else {
 		return 0;
 	}
@@ -406,13 +427,13 @@ static inline cfi_word cfi_read(struct map_info *map, __u32 addr)
 static inline void cfi_write(struct map_info *map, cfi_word val, __u32 addr)
 {
 	if (cfi_buswidth_is_1()) {
-		map->write8(map, val, addr);
+		map_write8(map, val, addr);
 	} else if (cfi_buswidth_is_2()) {
-		map->write16(map, val, addr);
+		map_write16(map, val, addr);
 	} else if (cfi_buswidth_is_4()) {
-		map->write32(map, val, addr);
+		map_write32(map, val, addr);
 	} else if (cfi_buswidth_is_8()) {
-		map->write64(map, val, addr);
+		map_write64(map, val, addr);
 	}
 }
 
@@ -443,13 +464,13 @@ static inline __u32 cfi_send_gen_cmd(u_char cmd, __u32 cmd_addr, __u32 base,
 static inline __u8 cfi_read_query(struct map_info *map, __u32 addr)
 {
 	if (cfi_buswidth_is_1()) {
-		return map->read8(map, addr);
+		return map_read8(map, addr);
 	} else if (cfi_buswidth_is_2()) {
-		return cfi16_to_cpu(map->read16(map, addr));
+		return cfi16_to_cpu(map_read16(map, addr));
 	} else if (cfi_buswidth_is_4()) {
-		return cfi32_to_cpu(map->read32(map, addr));
+		return cfi32_to_cpu(map_read32(map, addr));
 	} else if (cfi_buswidth_is_8()) {
-		return cfi64_to_cpu(map->read64(map, addr));
+		return cfi64_to_cpu(map_read64(map, addr));
 	} else {
 		return 0;
 	}
@@ -479,5 +500,19 @@ static inline void cfi_spin_unlock(spinlock_t *mutex)
 	spin_unlock_bh(mutex);
 }
 
+struct cfi_extquery *cfi_read_pri(struct map_info *map, __u16 adr, __u16 size,
+			     const char* name);
+
+struct cfi_fixup {
+	__u16 mfr;
+	__u16 id;
+	void (*fixup)(struct map_info *map, void* param);
+	void* param;
+};
+
+#define CFI_MFR_ANY 0xffff
+#define CFI_ID_ANY  0xffff
+
+void cfi_fixup(struct map_info *map, struct cfi_fixup* fixups);
 
 #endif /* __MTD_CFI_H__ */

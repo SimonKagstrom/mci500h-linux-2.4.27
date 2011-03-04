@@ -13,7 +13,7 @@
 #include <asm/assembler.h>
 
 		.text
-		.align	5
+		.align	4
 ENTRY(strrchr)
 		mov	r3, #0
 1:		ldrb	r2, [r0], #1

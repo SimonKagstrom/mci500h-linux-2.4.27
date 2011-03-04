@@ -36,6 +36,11 @@
 #define LOG_BUF_LEN	(131072)
 #elif defined(CONFIG_SMP)
 #define LOG_BUF_LEN	(32768)
+
+#elif defined(CONFIG_SSA_HAS7752) || defined(CONFIG_ARCH_PNX0106)
+
+#define LOG_BUF_LEN	(65536)			/* Temporary hack... where _should_ it be done ?!? */
+
 #else	
 #define LOG_BUF_LEN	(16384)			/* This must be a power of two */
 #endif

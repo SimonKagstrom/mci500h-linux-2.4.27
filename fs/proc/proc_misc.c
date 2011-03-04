@@ -308,16 +308,16 @@ static int kstat_read_proc(char *page, char **start, off_t off,
 {
 	int i, len = 0;
 	extern unsigned long total_forks;
-	unsigned long jif = jiffies;
+	unsigned long jif = hz_to_std(jiffies);
 	unsigned int sum = 0, user = 0, nice = 0, system = 0;
 	int major, disk;
 
 	for (i = 0 ; i < smp_num_cpus; i++) {
 		int cpu = cpu_logical_map(i), j;
 
-		user += kstat.per_cpu_user[cpu];
-		nice += kstat.per_cpu_nice[cpu];
-		system += kstat.per_cpu_system[cpu];
+		user += hz_to_std(kstat.per_cpu_user[cpu]);
+		nice += hz_to_std(kstat.per_cpu_nice[cpu]);
+		system += hz_to_std(kstat.per_cpu_system[cpu]);
 #if !defined(CONFIG_ARCH_S390)
 		for (j = 0 ; j < NR_IRQS ; j++)
 			sum += kstat.irqs[cpu][j];
@@ -331,10 +331,10 @@ static int kstat_read_proc(char *page, char **start, off_t off,
 		proc_sprintf(page, &off, &len,
 			"cpu%d %u %u %u %lu\n",
 			i,
-			kstat.per_cpu_user[cpu_logical_map(i)],
-			kstat.per_cpu_nice[cpu_logical_map(i)],
-			kstat.per_cpu_system[cpu_logical_map(i)],
-			jif - (  kstat.per_cpu_user[cpu_logical_map(i)] \
+			hz_to_std(kstat.per_cpu_user[cpu_logical_map(i)]),
+			hz_to_std(kstat.per_cpu_nice[cpu_logical_map(i)]),
+			hz_to_std(kstat.per_cpu_system[cpu_logical_map(i)]),
+			jif - hz_to_std(  kstat.per_cpu_user[cpu_logical_map(i)] \
 				   + kstat.per_cpu_nice[cpu_logical_map(i)] \
 				   + kstat.per_cpu_system[cpu_logical_map(i)]));
 	proc_sprintf(page, &off, &len,
@@ -440,12 +440,14 @@ static int filesystems_read_proc(char *page, char **start, off_t off,
 	return proc_calc_metrics(page, start, off, count, eof, len);
 }
 
+#ifdef CONFIG_GENERIC_ISA_DMA
 static int dma_read_proc(char *page, char **start, off_t off,
 				 int count, int *eof, void *data)
 {
 	int len = get_dma_list(page);
 	return proc_calc_metrics(page, start, off, count, eof, len);
 }
+#endif
 
 static int cmdline_read_proc(char *page, char **start, off_t off,
 				 int count, int *eof, void *data)
@@ -578,7 +580,9 @@ static struct file_operations proc_sysrq_trigger_operations = {
 };
 #endif
 
+/*
 struct proc_dir_entry *proc_root_kcore;
+*/
 
 static void create_seq_entry(char *name, mode_t mode, struct file_operations *f)
 {
@@ -614,7 +618,9 @@ void __init proc_misc_init(void)
 		{"interrupts",	interrupts_read_proc},
 #endif
 		{"filesystems",	filesystems_read_proc},
+#ifdef CONFIG_GENERIC_ISA_DMA
 		{"dma",		dma_read_proc},
+#endif
 		{"cmdline",	cmdline_read_proc},
 #ifdef CONFIG_SGI_DS1286
 		{"rtc",		ds1286_read_proc},
@@ -644,12 +650,16 @@ void __init proc_misc_init(void)
 #ifdef CONFIG_MODULES
 	create_seq_entry("ksyms", 0, &proc_ksyms_operations);
 #endif
+
+/*
 	proc_root_kcore = create_proc_entry("kcore", S_IRUSR, NULL);
 	if (proc_root_kcore) {
 		proc_root_kcore->proc_fops = &proc_kcore_operations;
 		proc_root_kcore->size =
 				(size_t)high_memory - PAGE_OFFSET + PAGE_SIZE;
 	}
+*/
+
 	if (prof_shift) {
 		entry = create_proc_entry("profile", S_IWUSR | S_IRUGO, NULL);
 		if (entry) {

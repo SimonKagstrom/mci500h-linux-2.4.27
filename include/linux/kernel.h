@@ -14,6 +14,47 @@
 #include <linux/compiler.h>
 #include <asm/byteorder.h>
 
+#if defined (CONFIG_ARCH_LOST_WRITES)
+
+#define DBL_WRITE(dest, src) 					\
+	do {							\
+		*((volatile typeof(dest) *)&(dest)) = (src);	\
+		*((volatile typeof(dest) *)&(dest)) = (src);	\
+	} while (0)
+
+#define LDB_WRITE(dest, src) 					\
+	do {							\
+		typeof(dest) _t_m_p_;				\
+								\
+		_t_m_p_ = *((volatile typeof(dest) *)&(dest));	\
+		*((volatile typeof(dest) *)&(dest)) = (src);	\
+	} while (0)
+
+#if defined (CONFIG_CPU_DCACHE_WRITETHROUGH)
+	#define WRITE_FIX(dest,src) DBL_WRITE((dest), (src))
+#else
+	#define WRITE_FIX(dest,src) LDB_WRITE((dest), (src))
+#endif
+
+#else
+
+#define DBL_WRITE(dest, src) 					\
+	do {							\
+		(dest) = (src);					\
+	} while (0)
+
+#define LDB_WRITE(dest, src) 					\
+	do {							\
+		(dest) = (src);					\
+	} while (0)
+
+#define WRITE_FIX(dest, src)					\
+	do {							\
+		(dest) = (src);					\
+	} while (0)
+
+#endif
+
 /* Optimization barrier */
 /* The "volatile" is due to gcc bugs */
 #define barrier() __asm__ __volatile__("": : :"memory")

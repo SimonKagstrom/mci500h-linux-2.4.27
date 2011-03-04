@@ -20,16 +20,16 @@
     Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.		     */
 /* ------------------------------------------------------------------------- */
 
-/* $Id: i2c-id.h,v 1.35 2001/08/12 17:22:20 mds Exp $ */
+/* $Id: i2c-id.h,v 1.52 2002/07/10 13:28:44 abz Exp $ */
 
 #ifndef I2C_ID_H
 #define I2C_ID_H
 /*
  * This file is part of the i2c-bus package and contains the identifier
  * values for drivers, adapters and other folk populating these serial
- * worlds. 
+ * worlds.
  *
- * These will change often (i.e. additions) , therefore this has been 
+ * These will change often (i.e. additions) , therefore this has been
  * separated from the functional interface definitions of the i2c api.
  *
  */
@@ -38,10 +38,10 @@
  * ---- Driver types -----------------------------------------------------
  *       device id name + number        function description, i2c address(es)
  *
- *  Range 1000-1999 range is defined in sensors/sensors.h 
- *  Range 0x100 - 0x1ff is for V4L2 Common Components 
+ *  Range 1000-1999 range is defined in sensors/sensors.h
+ *  Range 0x100 - 0x1ff is for V4L2 Common Components
  *  Range 0xf000 - 0xffff is reserved for local experimentation, and should
- *        never be used in official drivers 
+ *        never be used in official drivers
  */
 
 #define I2C_DRIVERID_MSP3400	 1
@@ -90,7 +90,12 @@
 #define I2C_DRIVERID_DRP3510	43     /* ADR decoder (Astra Radio)	*/
 #define I2C_DRIVERID_SP5055	44     /* Satellite tuner		*/
 #define I2C_DRIVERID_STV0030	45     /* Multipurpose switch		*/
+#define I2C_DRIVERID_SAA7108	46     /* video decoder, image scaler   */
+#define I2C_DRIVERID_DS1307	47     /* DS1307 real time clock	*/
 #define I2C_DRIVERID_ADV7175	48     /* ADV 7175/7176 video encoder	*/
+#define I2C_DRIVERID_ZR36067	49     /* Zoran 36067 video encoder	*/
+#define I2C_DRIVERID_ZR36120	50     /* Zoran 36120 video encoder	*/
+#define I2C_DRIVERID_24LC32A	51     /* Microchip 24LC32A 32k EEPROM	*/
 #define I2C_DRIVERID_MAX1617	56     /* temp sensor			*/
 #define I2C_DRIVERID_SAA7191	57     /* video decoder                 */
 #define I2C_DRIVERID_INDYCAM	58     /* SGI IndyCam			*/
@@ -102,8 +107,10 @@
 
 #define I2C_DRIVERID_I2CDEV	900
 #define I2C_DRIVERID_I2CPROC	901
+#define I2C_DRIVERID_ARP        902    /* SMBus ARP Client              */
+#define I2C_DRIVERID_ALERT      903    /* SMBus Alert Responder Client  */
 
-/* IDs --   Use DRIVERIDs 1000-1999 for sensors. 
+/* IDs --   Use DRIVERIDs 1000-1999 for sensors.
    These were originally in sensors.h in the lm_sensors package */
 #define I2C_DRIVERID_LM78 1002
 #define I2C_DRIVERID_LM75 1003
@@ -131,6 +138,12 @@
 #define I2C_DRIVERID_ADM1024 1025
 #define I2C_DRIVERID_IT87 1026
 #define I2C_DRIVERID_CH700X 1027 /* single driver for CH7003-7009 digital pc to tv encoders */
+#define I2C_DRIVERID_FSCPOS 1028
+#define I2C_DRIVERID_FSCSCY 1029
+#define I2C_DRIVERID_PCF8591 1030
+#define I2C_DRIVERID_SMSC47M1 1031
+#define I2C_DRIVERID_VT1211 1032
+#define I2C_DRIVERID_LM92 1033
 
 /*
  * ---- Adapter types ----------------------------------------------------
@@ -147,7 +160,8 @@
 #define I2C_ALGO_ISA 	0x050000	/* lm_sensors ISA pseudo-adapter */
 #define I2C_ALGO_SAA7146 0x060000	/* SAA 7146 video decoder bus	*/
 #define I2C_ALGO_ACB 	0x070000	/* ACCESS.bus algorithm         */
-
+#define I2C_ALGO_IIC    0x080000 	/* ITE IIC bus */
+#define I2C_ALGO_SAA7134 0x090000
 #define I2C_ALGO_EC     0x100000        /* ACPI embedded controller     */
 
 #define I2C_ALGO_MPC8XX 0x110000	/* MPC8xx PowerPC I2C algorithm */
@@ -156,13 +170,15 @@
 
 #define I2C_ALGO_SGI	0x130000	/* SGI algorithm		*/
 
+#define I2C_ALGO_OCP    0x120000	/* IBM or otherwise On-chip I2C algorithm */
+
 #define I2C_ALGO_EXP	0x800000	/* experimental			*/
 
 #define I2C_ALGO_MASK	0xff0000	/* Mask for algorithms		*/
 #define I2C_ALGO_SHIFT	0x10	/* right shift to get index values 	*/
 
 #define I2C_HW_ADAPS	0x10000		/* # adapter types		*/
-#define I2C_HW_MASK	0xffff		
+#define I2C_HW_MASK	0xffff
 
 
 /* hw specific modules that are defined per algorithm layer
@@ -182,9 +198,13 @@
 #define I2C_HW_B_I810	0x0a	/* Intel I810 				*/
 #define I2C_HW_B_VOO	0x0b	/* 3dfx Voodoo 3 / Banshee      	*/
 #define I2C_HW_B_PPORT  0x0c	/* Primitive parallel port adapter	*/
+#define I2C_HW_B_SAVG	0x0d	/* Savage 4                     	*/
 #define I2C_HW_B_RIVA	0x10	/* Riva based graphics cards		*/
 #define I2C_HW_B_IOC	0x11	/* IOC bit-wiggling			*/
 #define I2C_HW_B_TSUNA  0x12	/* DEC Tsunami chipset			*/
+#define I2C_HW_B_FRODO	0x13	/* 2d3D, Inc. SA-1110 Development Board */
+#define I2C_HW_B_OMAHA  0x14    /* Omaha I2C interface                  */
+#define I2C_HW_B_GUIDE  0x15    /* Guide bit-basher                     */
 
 /* --- PCF 8584 based algorithms					*/
 #define I2C_HW_P_LP	0x00	/* Parallel port interface		*/
@@ -196,6 +216,12 @@
 
 /* --- MPC8xx PowerPC adapters						*/
 #define I2C_HW_MPC8XX_EPON 0x00	/* Eponymous MPC8xx I2C adapter 	*/
+
+/* --- ITE based algorithms						*/
+#define I2C_HW_I_IIC	0x00	/* controller on the ITE */
+
+/* --- PowerPC on-chip adapters						*/
+#define I2C_HW_OCP 0x00	/* IBM on-chip I2C adapter 	*/
 
 /* --- Broadcom SiByte adapters						*/
 #define I2C_HW_SIBYTE	0x00

@@ -1,0 +1,73 @@
+#!/bin/sh
+
+set -e
+
+#
+# To build a kernel for the first time
+# ------------------------------------
+#
+# make distclean
+# cp configs/config_default_<PLATFORM_NAME> .config
+# make oldconfig dep && ./build_pnx0106
+#
+#
+# To re-build if kernel source tree is already configured
+# -------------------------------------------------------
+#
+# ./build_pnx0106
+#
+#
+
+[ ! -f ".config" ] && { echo ".config not found..."; exit 1; }
+
+[ "$(cat .config | grep CONFIG_PNX0106_GH526=y       | wc -l)" = "1" ] && PLATFORM="gh526"
+[ "$(cat .config | grep CONFIG_PNX0106_HASLI7=y      | wc -l)" = "1" ] && PLATFORM="hasli7"
+[ "$(cat .config | grep CONFIG_PNX0106_HACLI7=y      | wc -l)" = "1" ] && PLATFORM="hacli7"
+[ "$(cat .config | grep CONFIG_PNX0106_MCIH=y        | wc -l)" = "1" ] && PLATFORM="mcih"
+[ "$(cat .config | grep CONFIG_PNX0106_MCI=y         | wc -l)" = "1" ] && PLATFORM="mci"
+[ "$(cat .config | grep CONFIG_PNX0106_LAGUNA_REVA=y | wc -l)" = "1" ] && PLATFORM="laguna"
+[ "$(cat .config | grep CONFIG_PNX0106_LPAS1=y       | wc -l)" = "1" ] && PLATFORM="lpas1"
+[ "$(cat .config | grep CONFIG_PNX0106_LDMA1=y       | wc -l)" = "1" ] && PLATFORM="ldma1"
+[ "$(cat .config | grep CONFIG_PNX0106_PLR3K=y       | wc -l)" = "1" ] && PLATFORM="plr3k"
+[ "$(cat .config | grep CONFIG_PNX0106_RSS1=y        | wc -l)" = "1" ] && PLATFORM="rss1"
+[ "$(cat .config | grep CONFIG_PNX0106_RSC1=y        | wc -l)" = "1" ] && PLATFORM="rsc1"
+[ "$(cat .config | grep CONFIG_PNX0106_VCP2=y        | wc -l)" = "1" ] && PLATFORM="vcp2"
+[ "$(cat .config | grep CONFIG_PNX0106_W6=y          | wc -l)" = "1" ] && PLATFORM="w6"
+[ "$(cat .config | grep CONFIG_PNX0106_WMA100=y      | wc -l)" = "1" ] && PLATFORM="wma100"
+[ "$(cat .config | grep CONFIG_PNX0106_WSA=y         | wc -l)" = "1" ] && PLATFORM="wsa"
+
+if [ -z "$(arm-linux-gcc -dumpversion 2>/dev/null)" ]; then
+	echo -e "\nWarning: arm-linux-gcc is not on your PATH... using fallback default\n"
+	PATH="$PATH:/usr/local/arm/3.3.4-glibc-2.3.2/bin"
+	echo "PATH=$PATH"
+fi
+
+if [ "${PLATFORM}" = "plr3k" -a -x "../build_tools/imga_host_sign_n1c08_plr3k" ]
+then
+	HOST_SIGN="../build_tools/imga_host_sign_n1c08_plr3k"
+
+elif [ "${PLATFORM}" = "gh526" -a -x "../build_tools/imga_host_sign_n1c08_sle" ]
+then
+	HOST_SIGN="../build_tools/imga_host_sign_n1c08_sle"
+else
+	HOST_SIGN="../build_tools/imga_host_sign"
+fi
+
+make zImage
+arm-linux-objdump -d vmlinux > vmlinux.dis
+
+echo "host_sign: ${HOST_SIGN}"
+
+if [ -d "/tftpboot" ]
+then
+	DST_DIR="/tftpboot"
+else
+	DST_DIR="."
+fi
+
+${HOST_SIGN} --type zimage --linkaddress 0x30600000 --releaseid 0x00010f5e arch/arm/boot/zImage ${DST_DIR}/zImage_${PLATFORM}
+
+chmod 644 ${DST_DIR}/zImage_${PLATFORM}
+ls -l ${DST_DIR}/zImage_${PLATFORM}
+echo 
+

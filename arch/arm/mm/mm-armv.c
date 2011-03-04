@@ -9,7 +9,6 @@
  *
  *  Page table sludge for ARM v3 and v4 processor architectures.
  */
-#include <linux/sched.h>
 #include <linux/mm.h>
 #include <linux/init.h>
 #include <linux/bootmem.h>
@@ -390,6 +389,9 @@ void __init memtable_init(struct meminfo *mi)
 	init_maps->bufferable = 0;
 
 	create_mapping(init_maps);
+
+	flush_cache_all();
+	flush_tlb_all();
 }
 
 /*

@@ -104,3 +104,6 @@ extern void scsi_add_timer(Scsi_Cmnd *, int, void ((*) (Scsi_Cmnd *)));
 extern int scsi_delete_timer(Scsi_Cmnd *);
 EXPORT_SYMBOL(scsi_add_timer);
 EXPORT_SYMBOL(scsi_delete_timer);
+
+extern int scsi_set_medium_removal(Scsi_Device *dev, char state);
+EXPORT_SYMBOL(scsi_set_medium_removal);

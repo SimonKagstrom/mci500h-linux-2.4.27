@@ -9,9 +9,30 @@
  */
 #include <linux/linkage.h>
 #include <asm/assembler.h>
+#include <linux/config.h>
+
+#if defined (CONFIG_ARCH_LOST_WRITES)
 
 	.text
-	.align	5
+	.align	2
+
+ENTRY(__memzero)
+
+	mov	r3, #0
+	cmp	r3, r1
+	beq	2f
+	mov	r2, #0
+1:	strb	r2, [r0, r3]
+	add	r3, r3, #1
+	cmp	r3, r1
+	bne	1b
+2:
+	RETINSTR(mov,pc,lr)
+
+#else
+
+	.text
+	.align	4
 	.word	0
 /*
  * Align the pointer in r0.  r3 contains the number of bytes that we are
@@ -78,3 +99,6 @@ ENTRY(__memzero)
 	tst	r1, #1			@ 1 a byte left over
 	strneb	r2, [r0], #1		@ 1
 	RETINSTR(mov,pc,lr)		@ 1
+
+#endif
+

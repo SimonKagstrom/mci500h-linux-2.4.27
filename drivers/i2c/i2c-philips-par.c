@@ -16,7 +16,7 @@
     You should have received a copy of the GNU General Public License
     along with this program; if not, write to the Free Software
     Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.		     */
-/* ------------------------------------------------------------------------- */ 
+/* ------------------------------------------------------------------------- */
 
 /* With some changes from Kyösti Mälkki <kmalkki@cc.hut.fi> and even
    Frodo Looijaard <frodol@dds.nl> */
@@ -72,7 +72,7 @@ static struct i2c_par *adapter_list;
 
 static void bit_lp_setscl(void *data, int state)
 {
-	/*be cautious about state of the control register - 
+	/*be cautious about state of the control register -
 		touch only the one bit needed*/
 	if (state) {
 		parport_write_control((struct parport *) data,
@@ -126,7 +126,7 @@ static void bit_lp_setsda2(void *data, int state)
 
 static int bit_lp_getsda2(void *data)
 {
-	return (parport_read_status((struct parport *) data) & 
+	return (parport_read_status((struct parport *) data) &
 			             PARPORT_STATUS_BUSY) ? 0 : 1;
 }
 
@@ -154,7 +154,7 @@ static void bit_lp_dec_use(struct i2c_adapter *adap)
  * Encapsulate the above functions in the correct operations structure.
  * This is only done when more than one hardware adapter is supported.
  */
- 
+
 static struct i2c_algo_bit_data bit_lp_data = {
 	NULL,
 	bit_lp_setsda,
@@ -162,7 +162,7 @@ static struct i2c_algo_bit_data bit_lp_data = {
 	bit_lp_getsda,
 	bit_lp_getscl,
 	80, 80, 100,		/*	waits, timeout */
-}; 
+};
 
 static struct i2c_algo_bit_data bit_lp_data2 = {
 	NULL,
@@ -171,7 +171,7 @@ static struct i2c_algo_bit_data bit_lp_data2 = {
 	bit_lp_getsda2,
 	NULL,
 	80, 80, 100,		/*	waits, timeout */
-}; 
+};
 
 static struct i2c_adapter bit_lp_ops = {
 	"Philips Parallel port adapter",
@@ -197,7 +197,7 @@ static void i2c_parport_attach (struct parport *port)
 	printk(KERN_DEBUG "i2c-philips-par.o: attaching to %s\n", port->name);
 
 	adapter->pdev = parport_register_device(port, "i2c-philips-par",
-						NULL, NULL, NULL, 
+						NULL, NULL, NULL,
 						PARPORT_FLAG_EXCL,
 						NULL);
 	if (!adapter->pdev) {
@@ -257,16 +257,16 @@ static struct parport_driver i2c_driver = {
 	NULL
 };
 
-int __init i2c_bitlp_init(void)
+static int __init i2c_bitlp_init(void)
 {
 	printk(KERN_INFO "i2c-philips-par.o: i2c Philips parallel port adapter module version %s (%s)\n", I2C_VERSION, I2C_DATE);
 
 	parport_register_driver(&i2c_driver);
-	
+
 	return 0;
 }
 
-void __exit i2c_bitlp_exit(void)
+static void __exit i2c_bitlp_exit(void)
 {
 	parport_unregister_driver(&i2c_driver);
 }
@@ -279,14 +279,5 @@ MODULE_LICENSE("GPL");
 
 MODULE_PARM(type, "i");
 
-#ifdef MODULE
-int init_module(void)
-{
-	return i2c_bitlp_init();
-}
-
-void cleanup_module(void)
-{
-	i2c_bitlp_exit();
-}
-#endif
+module_init(i2c_bitlp_init);
+module_exit(i2c_bitlp_exit);

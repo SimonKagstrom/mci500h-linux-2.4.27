@@ -75,7 +75,7 @@ static char version[] __initdata = "ether3 ethernet driver (c) 1995-2000 R.M.Kin
 #include "ether3.h"
 
 static unsigned int net_debug = NET_DEBUG;
-static const card_ids __init ether3_cids[] = {
+static card_ids __initdata ether3_cids[] = {
 	{ MANU_ANT2, PROD_ANT_ETHER3 },
 	{ MANU_ANT,  PROD_ANT_ETHER3 },
 	{ MANU_ANT,  PROD_ANT_ETHERB },

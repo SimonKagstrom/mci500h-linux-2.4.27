@@ -339,7 +339,11 @@ static int actual_try_to_identify (ide_drive_t *drive, u8 cmd)
 
 	/* wait for IRQ and DRQ_STAT */
 	ide_delay_50ms();
+#ifdef CONFIG_ARCH_SSA
+	if (OK_STAT((hwif->INB(IDE_STATUS_REG)), READY_STAT, BAD_R_STAT)) {
+#else
 	if (OK_STAT((hwif->INB(IDE_STATUS_REG)), DRQ_STAT, BAD_R_STAT)) {
+#endif
 		unsigned long flags;
 
 		/* local CPU only; some systems need this */
@@ -1136,6 +1140,16 @@ int init_irq (ide_hwif_t *hwif)
 	spin_unlock_irqrestore(&io_request_lock, flags);
 #endif
 
+#if defined (CONFIG_ARCH_SSA)
+
+	printk("%s at 0x%08x on irq %d", hwif->name, ata_regs_phys, hwif->irq);
+
+#elif defined (CONFIG_ARCH_PNX0106)
+
+	printk("%s on slot%s, irq %d", hwif->name, /*fixme !!*/ 1 ? "A" : "B", hwif->irq);
+
+#else
+
 #if !defined(__mc68000__) && !defined(CONFIG_APUS) && !defined(__sparc__)
 	printk("%s at 0x%03lx-0x%03lx,0x%03lx on irq %d", hwif->name,
 		hwif->io_ports[IDE_DATA_OFFSET],
@@ -1150,6 +1164,9 @@ int init_irq (ide_hwif_t *hwif)
 	printk("%s at 0x%08lx on irq %d", hwif->name,
 		hwif->io_ports[IDE_DATA_OFFSET], hwif->irq);
 #endif /* __mc68000__ && CONFIG_APUS */
+
+#endif
+
 	if (match)
 		printk(" (%sed with %s)",
 			hwif->sharing_irq ? "shar" : "serializ", match->name);
@@ -1297,11 +1314,11 @@ int hwif_init (ide_hwif_t *hwif)
 			hwif->name, hwif->major);
 		return (hwif->present = 0);
 	}
-	
+
 	if (init_irq(hwif)) {
 		int i = hwif->irq;
 		/*
-		 *	It failed to initialise. Find the default IRQ for 
+		 *	It failed to initialise. Find the default IRQ for
 		 *	this port and try that.
 		 */
 		if (!(hwif->irq = ide_default_irq(hwif->io_ports[IDE_DATA_OFFSET]))) {
@@ -1319,7 +1336,7 @@ int hwif_init (ide_hwif_t *hwif)
 		printk("%s: probed IRQ %d failed, using default.\n",
 			hwif->name, hwif->irq);
 	}
-	
+
 	init_gendisk(hwif);
 	blk_dev[hwif->major].data = hwif;
 	blk_dev[hwif->major].queue = ide_get_queue;

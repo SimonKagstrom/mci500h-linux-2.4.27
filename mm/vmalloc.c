@@ -44,8 +44,13 @@ static inline void free_area_pte(pmd_t * pmd, unsigned long address, unsigned lo
 		if (pte_none(page))
 			continue;
 		if (pte_present(page)) {
-			struct page *ptpage = pte_page(page);
-			if (VALID_PAGE(ptpage) && (!PageReserved(ptpage)))
+			unsigned long pfn = pte_pfn(page);
+			struct page *ptpage;
+
+			if (!pfn_valid(pfn))
+				continue;
+			ptpage = pfn_to_page(pfn);
+			if (!PageReserved(ptpage))
 				__free_page(ptpage);
 			continue;
 		}

@@ -15,9 +15,9 @@ O_TARGET := net.o
 # All of the (potential) objects that export symbols.
 # This list comes from 'grep -l EXPORT_SYMBOL *.[hc]'.
 
-export-objs     :=	8390.o arlan.o aironet4500_core.o aironet4500_card.o \
-			ppp_async.o ppp_generic.o slhc.o pppox.o auto_irq.o \
-			net_init.o mii.o
+export-objs     :=	8390.o 8390-asix.o arlan.o aironet4500_core.o \
+			aironet4500_card.o ppp_async.o ppp_generic.o slhc.o \
+			pppox.o auto_irq.o net_init.o mii.o
 list-multi	:=	rcpci.o
 rcpci-objs	:=	rcpci45.o rclanmtl.o
 
@@ -54,6 +54,7 @@ subdir-$(CONFIG_SKFP) += skfp
 subdir-$(CONFIG_E100) += e100
 subdir-$(CONFIG_E1000) += e1000
 subdir-$(CONFIG_BONDING) += bonding
+subdir-$(CONFIG_SSA_ZD1201) += wlan-ng-zd1201
 
 #
 # link order important here
@@ -80,6 +81,7 @@ obj-$(CONFIG_RCPCI) += rcpci.o
 obj-$(CONFIG_VORTEX) += 3c59x.o mii.o
 obj-$(CONFIG_TYPHOON) += typhoon.o
 obj-$(CONFIG_NE2K_PCI) += ne2k-pci.o 8390.o
+obj-$(CONFIG_NE2K_ASIX) += ne2k-asix.o 8390-asix.o mii.o
 obj-$(CONFIG_PCNET32) += pcnet32.o mii.o
 obj-$(CONFIG_EEPRO100) += eepro100.o mii.o
 obj-$(CONFIG_TLAN) += tlan.o
@@ -244,6 +246,7 @@ obj-$(CONFIG_AMD8111_ETH) += amd8111e.o mii.o
 # non-drivers/net drivers who want mii lib
 obj-$(CONFIG_PCMCIA_SMC91C92) += mii.o
 obj-$(CONFIG_USB_USBNET) += mii.o
+obj-$(CONFIG_AT91_ETHER) += mii.o
 
 obj-$(CONFIG_IBMVETH) += ibmveth.o
 
@@ -270,4 +273,3 @@ clean:
 
 rcpci.o: $(rcpci-objs)
 	$(LD) -r -o $@ $(rcpci-objs)
-

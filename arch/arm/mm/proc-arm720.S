@@ -97,7 +97,7 @@ ENTRY(cpu_arm720_tlb_invalidate_range)
 1:		mcr	p15, 0, r0, c8, c7, 1		@ flush TLB (v4)
 		add	r0, r0, #PAGESIZE
 		cmp	r0, r1
-		blt	1b
+		blo	1b
 		mov	pc, lr
 
 /*
@@ -121,11 +121,11 @@ ENTRY(cpu_arm720_tlb_invalidate_page)
  * Purpose : obtain information about current aborted instruction
  * Note: we read user space.  This means we might cause a data
  * abort here if the I-TLB and D-TLB aren't seeing the same
- * picture.  Unfortunately, this does happen.  We live with it.
+ * picture.  Unfortunately, this does happen.  We handle it.
  *
  * Returns : r0 = address of abort
- *	   : r1 != 0 if writing
- *	   : r3 = FSR
+ *	   : r1 = FSR, bit 11 set if writing
+ *	   : r3 = corrupted
  *	   : sp = pointer to registers
  */
 
@@ -150,17 +150,24 @@ Ldata_ldmstm:	tst	r4, #1 << 21			@ check writeback bit
 		addeq	r7, r0, r7, lsl #2		@ Do correction (signed)
 Ldata_saver7:	str	r7, [sp, r5, lsr #14]		@ Put register
 Ldata_simple:	mrc	p15, 0, r0, c6, c0, 0		@ get FAR
-		mrc	p15, 0, r3, c5, c0, 0		@ get FSR
-		and	r3, r3, #255
+		mrc	p15, 0, r1, c5, c0, 0		@ get FSR
+		bic	r1, r1, #1 << 11 | 1 << 10
+		tst	r4, #1 << 20
+		orreq	r1, r1, #1 << 11
 		mov	pc, lr
 
 ENTRY(cpu_arm720_data_abort)
-		tst	r3, #T_BIT
-		bne	.data_thumb_abort
-		ldr	r4, [r0]			@ read instruction causing problem
-		tst	r4, r4, lsr #21			@ C = bit 20
-		sbc	r1, r1, r1			@ r1 = C - 1
-		and	r2, r4, #15 << 24
+		mrc	p15, 0, r5, c6, c0, 0		@ get FAR
+		mrc	p15, 0, r6, c5, c0, 0		@ get FSR
+		stmdb	sp!, {r5, r6}			@ save copies as user space read may fault and corrupt originals
+		tst	r3, #PSR_T_BIT
+		ldreq	r4, [r2]			@ read arm instruction causing problem. May fault
+		ldrneh	r4, [r2]			@ read thumb instruction causing problem. May fault
+		ldmia	sp!, {r5, r6}
+		mcr	p15, 0, r5, c6, c0, 0		@ restore FAR
+		mcr	p15, 0, r6, c5, c0, 0		@ restore FSR
+		bne	.data_thumb_abort		@ handle thumb mode opcode
+		and	r2, r4, #15 << 24		@ or continue decoding arm mode opcode
 		add	pc, pc, r2, lsr #22		@ Now branch to the relevent processing routine
 		movs	pc, lr
 
@@ -270,9 +277,8 @@ Ldata_lateldrpostreg:
 		b	Ldata_saver7
 
 .data_thumb_abort:
-		ldrh	r4, [r0]			@ read instruction
-		tst	r4, r4, lsr #12			@ C = bit 11
-		sbc	r1, r1, r1			@ r1 = C - 1
+		tst	r4, #1 << 11
+		orrne	r4, r4, #1 << 20
 		and	r2, r4, #15 << 12
 		add	pc, pc, r2, lsr #10		@ lookup in table
 		nop
@@ -297,46 +303,41 @@ Ldata_lateldrpostreg:
 .data_thumb_reg:
 		tst	r4, #1 << 9
 		beq	Ldata_simple
-		tst	r4, #1 << 10		@ If 'S' (signed) bit is set
-		movne	r1, #0			@ it must be a load instr
+		tst	r4, #1 << 10			@ If 'S' (signed) bit is set
+		movne	r1, #0				@ it must be a load instr
 		b	Ldata_simple
 
 .data_thumb_pushpop:
-		tst	r4, #1 << 10
+		tst	r4, #1 << 10			@ bit 10 always set for PUSH and POP
 		beq	Ldata_unknown
-		mov	r7, #0x11
-		and	r0, r4, r7
-		and	r2, r4, r7, lsl #1
+		and	r0, r4, #0x55			@ do population count of register list
+		and	r2, r4, #0xAA
 		add	r0, r0, r2, lsr #1
-		and	r2, r4, r7, lsl #2
-		add	r0, r0, r2, lsr #2
-		and	r2, r4, r7, lsl #3
-		add	r0, r0, r2, lsr #3
-		add	r0, r0, r0, lsr #4
-		and	r2, r4, #0x0100			@ catch 'R' bit for push/pop
-		add	r0, r0, r2, lsr #8
-		and	r0, r0, #15			@ number of regs to transfer
-		ldr	r7, [sp, #13 << 2]
-		tst	r4, #1 << 11
-		addne	r7, r7, r0, lsl #2		@ increment SP if PUSH
-		subeq	r7, r7, r0, lsr #2		@ decrement SP if POP
+		and	r2, r0, #0x33
+		and	r0, r0, #0xCC
+		add	r0, r2, r0, lsr #2
+		movs	r7, r4, lsr #9 			@ move 'R' bit into carry flag
+		adc	r0, r0, r0, lsr #4
+		and	r0, r0, #0x0F			@ should be in range 0..9
+		ldr	r7, [sp, #13 << 2]		@ fetch old sp from stack frame
+		tst	r4, #1 << 11			@ bit 11 is 0 if PUSH, 1 if POP
+		addeq	r7, r7, r0, lsl #2		@ increment sp to undo PUSH
+		subne	r7, r7, r0, lsl #2		@ decrement sp to undo POP
 		str	r7, [sp, #13 << 2]
 		b	Ldata_simple
 
 .data_thumb_ldmstm:
-		mov	r7, #0x11
-		and	r0, r4, r7
-		and	r2, r4, r7, lsl #1
+		and	r0, r4, #0x55			@ do population count of register list
+		and	r2, r4, #0xAA
 		add	r0, r0, r2, lsr #1
-		and	r2, r4, r7, lsl #2
-		add	r0, r0, r2, lsr #2
-		and	r2, r4, r7, lsl #3
-		add	r0, r0, r2, lsr #3
+		and	r2, r0, #0x33
+		and	r0, r0, #0xCC
+		add	r0, r2, r0, lsr #2
 		add	r0, r0, r0, lsr #4
-		and	r0, r0, #15			@ number of regs to transfer
 		and	r5, r4, #7 << 8
 		ldr	r7, [sp, r5, lsr #6]
-		sub	r7, r7, r0, lsr #2		@ always decrement
+		and	r0, r0, #0x0F			@ should be in range 0..8
+		sub	r7, r7, r0, lsl #2		@ always decrement to undo ldm / stm
 		str	r7, [sp, r5, lsr #6]
 		b	Ldata_simple
 
@@ -418,7 +419,7 @@ ENTRY(cpu_arm720_set_pte)
 		bic	r2, r2, #3
 		orr	r2, r2, #HPTE_TYPE_SMALL
 
-		tst	r1, #LPTE_USER | LPTE_EXEC	@ User or Exec?
+		tst	r1, #LPTE_USER			@ User?
 		orrne	r2, r2, #HPTE_AP_READ
 
 		tst	r1, #LPTE_WRITE | LPTE_DIRTY	@ Write and Dirty?

@@ -37,7 +37,7 @@
 #ifdef DEBUG
 #define DBG(arg) printk arg
 #else
-#define DBG(fmt,...)
+#define DBG(fmt...)
 #endif
 /*
  * SL82C105 PCI config register 0x40 bits.

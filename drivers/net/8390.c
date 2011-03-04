@@ -1110,7 +1110,8 @@ void NS8390_init(struct net_device *dev, int startp)
 	{
 		outb_p(dev->dev_addr[i], e8390_base + EN1_PHYS_SHIFT(i));
 		if (ei_debug > 1 && inb_p(e8390_base + EN1_PHYS_SHIFT(i))!=dev->dev_addr[i])
-			printk(KERN_ERR "Hw. address read/write mismap %d\n",i);
+			printk(KERN_ERR "%s: Hw. address read/write mismap %d (%02x vs %02x) %08x\n",
+			__FUNCTION__, i, inb_p(e8390_base + EN1_PHYS_SHIFT(i)), dev->dev_addr[i], e8390_base + EN1_PHYS_SHIFT(i));
 	}
 
 	outb_p(ei_local->rx_start_page, e8390_base + EN1_CURPAG);

@@ -471,6 +471,17 @@ union i2c_smbus_data {
 				/* written byte (except address)	*/
 #define I2C_MDELAY	0x0706	/* millisec delay between written bytes */
 
+/* Philips SAA7752 I2C Master requires explicit START/STOP */
+#define I2C_START	0x0710
+#define I2C_STOP	0x0711
+#define I2C_NO_DATA	0x0712
+
+/* Philips PNX0106 master/slave specific */
+#define I2C_SLAVE_RD		0x0730
+#define I2C_SLAVE_WR		0x0731
+#define I2C_SLAVE_MAST_SWITCH	0x0732
+#define I2C_RESET		0x0733
+
 /* ----- I2C-DEV: char device interface stuff ------------------------- */
 
 #define I2C_MAJOR	89		/* Device major number		*/

@@ -232,6 +232,39 @@ write_out_data:
 	 */
 	spin_lock(&journal_datalist_lock);
 
+/*
+
+r1248 w6 kernel build:
+
+c0082adc:	ebfeaecc 	bl	c002e614 <__wake_up>
+
+c0082ae0:	e59a2084 	ldr	r2, [sl, #132]
+c0082ae4:	e3a03000 	mov	r3, #0	; 0x0
+c0082ae8:	e58a3028 	str	r3, [sl, #40]
+c0082aec:	e58a702c 	str	r7, [sl, #44]
+c0082af0:	e587200c 	str	r2, [r7, #12]
+
+c0082af4:	e5978020 	ldr	r8, [r7, #32]
+c0082af8:	e3a09000 	mov	r9, #0	; 0x0
+c0082afc:	e1580009 	cmp	r8, r9						; r8 = next_jh
+c0082b00:	0a00007c 	beq	c0082cf8 <journal_commit_transaction+0x3e8>	; goto sync_datalist_empty
+c0082b04:	e598b020 	ldr	fp, [r8, #32]					; fp = last_jh
+c0082b08:	e5984000 	ldr	r4, [r8]					; r4 = next_jh = jh->b_tnext;
+c0082b0c:	e1a05008 	mov	r5, r8						; r5 = next_jh (previous value)
+
+c0082b10:	e5943018 	ldr	r3, [r4, #24]					<---  crash happened here (r4 is NULL)
+
+c0082b14:	e598801c 	ldr	r8, [r8, #28]
+c0082b18:	e3130004 	tst	r3, #4	; 0x4
+c0082b1c:	1a000016 	bne	c0082b7c <journal_commit_transaction+0x26c>
+c0082b20:	e2136002 	ands	r6, r3, #2	; 0x2
+c0082b24:	e1a00005 	mov	r0, r5
+c0082b28:	0a00000b 	beq	c0082b5c <journal_commit_transaction+0x24c>
+
+
+*/
+
+
 write_out_data_locked:
 	bufs = 0;
 	next_jh = commit_transaction->t_sync_datalist;

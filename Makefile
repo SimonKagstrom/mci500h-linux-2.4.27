@@ -1,11 +1,12 @@
 VERSION = 2
 PATCHLEVEL = 4
 SUBLEVEL = 27
-EXTRAVERSION =
-
-KERNELRELEASE=$(VERSION).$(PATCHLEVEL).$(SUBLEVEL)$(EXTRAVERSION)
-
-ARCH := $(shell uname -m | sed -e s/i.86/i386/ -e s/sun4u/sparc64/ -e s/arm.*/arm/ -e s/sa110/arm/)
+EXTRAVERSION = -vrs1
+BUILDVERSION = -99999
+  
+KERNELRELEASE=$(VERSION).$(PATCHLEVEL).$(SUBLEVEL)$(EXTRAVERSION)$(BUILDVERSION)
+  
+ARCH := arm
 KERNELPATH=kernel-$(shell echo $(KERNELRELEASE) | sed -e "s/-//g")
 
 CONFIG_SHELL := $(shell if [ -x "$$BASH" ]; then echo $$BASH; \
@@ -19,7 +20,7 @@ FINDHPATH	= $(HPATH)/asm $(HPATH)/linux $(HPATH)/scsi $(HPATH)/net $(HPATH)/math
 HOSTCC  	= gcc
 HOSTCFLAGS	= -Wall -Wstrict-prototypes -O2 -fomit-frame-pointer
 
-CROSS_COMPILE 	=
+CROSS_COMPILE 	= arm-linux-
 
 #
 # Include the make variables (CC, etc...)
@@ -59,7 +60,7 @@ ifeq (.config,$(wildcard .config))
 include .config
 ifeq (.depend,$(wildcard .depend))
 include .depend
-do-it-all:	Version vmlinux
+do-it-all:	Version zImage
 else
 CONFIGURATION = depend
 do-it-all:	depend
@@ -81,9 +82,25 @@ endif
 # relocations required by build roots.  This is not defined in the
 # makefile but the arguement can be passed to make if needed.
 #
+# A.McCurdy: cross compile tweak: keep modules in the build directory
+# MRPROPER_DIRS has been tweaked so that $(TOPDIR)/modules is removed by make mrproper, distclean etc
+#
 
-MODLIB	:= $(INSTALL_MOD_PATH)/lib/modules/$(KERNELRELEASE)
+ifdef INSTALL_MOD_PATH
+MODLIB := $(INSTALL_MOD_PATH)/lib/modules/$(KERNELRELEASE)
+else
+MODLIB := $(TOPDIR)/modules/$(KERNELRELEASE)
+endif
 export MODLIB
+
+
+#
+# A.McCurdy: cross compile tweak: make modules_install will copy modules .tgz file to
+# this destination (probably the nfs exported root file system)
+#
+
+#NFS_ARFS_DIR := /arfs/arm_root_fs_current
+
 
 #
 # standard CFLAGS
@@ -137,7 +154,9 @@ DRIVERS-  :=
 
 DRIVERS-$(CONFIG_ACPI_BOOT) += drivers/acpi/acpi.o
 DRIVERS-$(CONFIG_PARPORT) += drivers/parport/driver.o
-DRIVERS-y += drivers/char/char.o \
+DRIVERS-$(CONFIG_L3) += drivers/l3/l3.o
+DRIVERS-y += drivers/serial/serial.o \
+	drivers/char/char.o \
 	drivers/block/block.o \
 	drivers/misc/misc.o \
 	drivers/net/net.o
@@ -161,6 +180,7 @@ ifneq ($(CONFIG_CD_NO_IDESCSI)$(CONFIG_BLK_DEV_IDECD)$(CONFIG_BLK_DEV_SR)$(CONFI
 DRIVERS-y += drivers/cdrom/driver.o
 endif
 
+DRIVERS-$(CONFIG_SSI) += drivers/ssi/ssi.o
 DRIVERS-$(CONFIG_SOUND) += drivers/sound/sounddrivers.o
 DRIVERS-$(CONFIG_PCI) += drivers/pci/driver.o
 DRIVERS-$(CONFIG_MTD) += drivers/mtd/mtdlink.o
@@ -194,6 +214,8 @@ DRIVERS-$(CONFIG_BLUEZ) += drivers/bluetooth/bluetooth.o
 DRIVERS-$(CONFIG_HOTPLUG_PCI) += drivers/hotplug/vmlinux-obj.o
 DRIVERS-$(CONFIG_ISDN_BOOL) += drivers/isdn/vmlinux-obj.o
 DRIVERS-$(CONFIG_CRYPTO) += crypto/crypto.o
+DRIVERS-$(CONFIG_PLD) += drivers/pld/pld.o
+DRIVERS-$(CONFIG_ARCH_AT91RM9200) += drivers/at91/at91drv.o
 
 DRIVERS := $(DRIVERS-y)
 
@@ -250,13 +272,14 @@ MRPROPER_FILES = \
 	include/asm \
 	.hdepend scripts/mkdep scripts/split-include scripts/docproc \
 	$(TOPDIR)/include/linux/modversions.h \
-	kernel.spec
+	kernel.spec \
+	$(TOPDIR)/modules.tgz
 
 # directories removed with 'make mrproper'
 MRPROPER_DIRS = \
 	include/config \
-	$(TOPDIR)/include/linux/modules
-
+	$(TOPDIR)/include/linux/modules \
+	$(TOPDIR)/modules
 
 include arch/$(ARCH)/Makefile
 
@@ -273,11 +296,6 @@ export kbuild_2_4_nostdinc
 export	CPPFLAGS CFLAGS CFLAGS_KERNEL AFLAGS AFLAGS_KERNEL
 
 export	NETWORKS DRIVERS LIBS HEAD LDFLAGS LINKFLAGS MAKEBOOT ASFLAGS
-
-.S.s:
-	$(CPP) $(AFLAGS) $(AFLAGS_KERNEL) -traditional -o $*.s $<
-.S.o:
-	$(CC) $(AFLAGS) $(AFLAGS_KERNEL) -traditional -c -o $*.o $<
 
 Version: dummy
 	@rm -f include/linux/compile.h
@@ -407,7 +425,7 @@ _modinst_:
 	@rm -rf $(MODLIB)/kernel
 	@rm -f $(MODLIB)/build
 	@mkdir -p $(MODLIB)/kernel
-	@ln -s $(TOPDIR) $(MODLIB)/build
+#	@ln -s $(TOPDIR) $(MODLIB)/build
 
 # If System.map exists, run depmod.  This deliberately does not have a
 # dependency on System.map since that would run the dependency tree on
@@ -421,16 +439,21 @@ depmod_opts	:= -b $(INSTALL_MOD_PATH) -r
 endif
 .PHONY: _modinst_post
 _modinst_post: _modinst_post_pcmcia
-	if [ -r System.map ]; then $(DEPMOD) -ae -F System.map $(depmod_opts) $(KERNELRELEASE); fi
+#	rm -f $(TOPDIR)/modules.tgz; cd $(TOPDIR)/modules; tar -czf $(TOPDIR)/modules.tgz $(KERNELRELEASE)
+#	cp $(TOPDIR)/modules.tgz $(NFS_ARFS_DIR)/lib/modules/
+#	if [ -d $(NFS_ARFS_DIR)/lib/modules/$(KERNELRELEASE)_old ]; then rm -rf $(NFS_ARFS_DIR)/lib/modules/$(KERNELRELEASE)_old; fi
+#	if [ -d $(NFS_ARFS_DIR)/lib/modules/$(KERNELRELEASE) ]; then mv $(NFS_ARFS_DIR)/lib/modules/$(KERNELRELEASE) $(NFS_ARFS_DIR)/lib/modules/$(KERNELRELEASE)_old; fi
+#	cp -a $(TOPDIR)/modules/$(KERNELRELEASE) $(NFS_ARFS_DIR)/lib/modules/
+#	if [ -r System.map ]; then $(DEPMOD) -ae -F System.map $(depmod_opts) $(KERNELRELEASE); fi
 
 # Backwards compatibilty symlinks for people still using old versions
 # of pcmcia-cs with hard coded pathnames on insmod.  Remove
 # _modinst_post_pcmcia for kernel 2.4.1.
 .PHONY: _modinst_post_pcmcia
 _modinst_post_pcmcia:
-	cd $(MODLIB); \
-	mkdir -p pcmcia; \
-	find kernel -path '*/pcmcia/*' -name '*.o' | xargs -i -r ln -sf ../{} pcmcia
+#	cd $(MODLIB); \
+#	mkdir -p pcmcia; \
+#	find kernel -path '*/pcmcia/*' -name '*.o' | xargs -i -r ln -sf ../{} pcmcia
 
 .PHONY: $(patsubst %, _modinst_%, $(SUBDIRS))
 $(patsubst %, _modinst_%, $(SUBDIRS)) :
@@ -500,7 +523,8 @@ dep-files: scripts/mkdep archdep include/linux/version.h
 ifdef CONFIG_MODVERSIONS
 	$(MAKE) update-modverfile
 endif
-	scripts/mkdep -- `find $(FINDHPATH) \( -name SCCS -o -name .svn \) -prune -o -follow -name \*.h ! -name modversions.h -print` > .hdepend
+#	scripts/mkdep -- `find $(FINDHPATH) \( -name SCCS -o -name .svn \) -prune -o -follow -name \*.h ! -name modversions.h -print` > .hdepend
+	(find $(FINDHPATH) \( -name SCCS -o -name .svn \) -prune -o -follow -name \*.h ! -name modversions.h -print | xargs -r scripts/mkdep -- ) > .hdepend
 	scripts/mkdep -- init/*.c > .depend
 
 ifdef CONFIG_MODVERSIONS

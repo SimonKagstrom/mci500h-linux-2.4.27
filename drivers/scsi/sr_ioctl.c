@@ -214,9 +214,8 @@ int sr_tray_move(struct cdrom_device_info *cdi, int pos)
 
 int sr_lock_door(struct cdrom_device_info *cdi, int lock)
 {
-	return scsi_ioctl(scsi_CDs[MINOR(cdi->dev)].device,
-		      lock ? SCSI_IOCTL_DOORLOCK : SCSI_IOCTL_DOORUNLOCK,
-			  0);
+	return scsi_set_medium_removal(scsi_CDs[MINOR(cdi->dev)].device,
+		      lock ? SCSI_REMOVAL_PREVENT : SCSI_REMOVAL_ALLOW);
 }
 
 int sr_drive_status(struct cdrom_device_info *cdi, int slot)

@@ -12,7 +12,7 @@
 #include <asm/errno.h>
 
 	.text
-	.align	5
+	.align	4
 
 /*
  * Copy a string from user space to kernel space.

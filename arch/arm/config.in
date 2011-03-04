@@ -42,14 +42,78 @@ choice 'ARM system type' \
  	 Excalibur-ARM          CONFIG_ARCH_CAMELOT \
 	 FootBridge		CONFIG_ARCH_FOOTBRIDGE \
 	 Integrator		CONFIG_ARCH_INTEGRATOR \
+	 SSA			CONFIG_ARCH_SSA \
 	 Omaha			CONFIG_ARCH_OMAHA \
 	 LinkUp-L7200		CONFIG_ARCH_L7200 \
 	 Motorola-MX1ADS        CONFIG_ARCH_MX1ADS \
+	 PNX0106		CONFIG_ARCH_PNX0106 \
 	 RiscPC			CONFIG_ARCH_RPC \
 	 RiscStation		CONFIG_ARCH_RISCSTATION \
 	 SA1100-based		CONFIG_ARCH_SA1100 \
 	 Shark			CONFIG_ARCH_SHARK \
 	 AT91RM9200-based	CONFIG_ARCH_AT91RM9200 " RiscPC
+
+if [ "$CONFIG_ARCH_SSA" = "y" ]
+then
+   mainmenu_option next_comment
+   comment 'SSA Implementations'
+   dep_bool '  Original SIIG demoboard' CONFIG_SSA_SIIG $CONFIG_ARCH_SSA
+   dep_bool '  Tahoe development board' CONFIG_SSA_TAHOE $CONFIG_ARCH_SSA
+   dep_bool '  WessLi' CONFIG_SSA_WESSLI $CONFIG_ARCH_SSA
+   dep_bool '  W3 (SAA7752 cpu + AX88796 + FIFO-less pccard/16bit interface)' CONFIG_SSA_W3 $CONFIG_ARCH_SSA
+   dep_tristate '    Enable CPLD pccard interface driver' CONFIG_SSA_W3_PCCARD $CONFIG_SSA_W3
+   dep_tristate '    Enable CPLD 16bit GPI interface driver' CONFIG_SSA_W3_GPI $CONFIG_SSA_W3
+   dep_tristate '    Enable CPLD SPI interface driver' CONFIG_SSA_W3_SPI $CONFIG_SSA_W3
+   dep_bool '  HAS (SAA7750 cpu)' CONFIG_SSA_HAS7750 $CONFIG_ARCH_SSA
+   dep_bool '    Use HAS7750 custom IDE driver' CONFIG_SSA_HAS7750_CUSTOM_IDE $CONFIG_SSA_HAS7750
+   dep_bool '  HAS (SAA7752 cpu)' CONFIG_SSA_HAS7752 $CONFIG_ARCH_SSA
+   dep_bool '    Use HAS7752 custom IDE driver' CONFIG_SSA_HAS7752_CUSTOM_IDE $CONFIG_SSA_HAS7752
+   dep_bool '    Enable USB Mass Storage driver' CONFIG_SSA_HAS7752_USBDEV $CONFIG_SSA_HAS7752
+   dep_tristate '    Enable simple pccard test module' CONFIG_SSA_HAS7752_PCCARD_TEST $CONFIG_SSA_HAS7752
+   dep_bool '    Enable DP-RAM driver' CONFIG_SSA_HAS7752_DPRAM $CONFIG_SSA_HAS7752
+   endmenu
+   
+   if [ "$CONFIG_SSA_HAS7752" = "y" -a "$CONFIG_SSA_HAS7750_CUSTOM_IDE" != "y" ]
+   then
+   	define_bool CONFIG_BLK_DEV_IDEDMA y
+   fi
+fi
+
+if [ "$CONFIG_ARCH_PNX0106" = "y" ]
+then
+   mainmenu_option next_comment
+   comment 'PNX0106 HW platforms'
+   dep_bool '  Nijmegen GH526 development board' CONFIG_PNX0106_GH526 $CONFIG_ARCH_PNX0106
+   dep_bool '  WSA development board' CONFIG_PNX0106_WSA $CONFIG_ARCH_PNX0106
+   dep_bool '  SIIG Laguna Rev A development board' CONFIG_PNX0106_LAGUNA_REVA $CONFIG_ARCH_PNX0106
+   dep_bool '  WessLi-6 AHub board' CONFIG_PNX0106_W6 $CONFIG_ARCH_PNX0106
+   dep_bool '  WMA-100 board' CONFIG_PNX0106_WMA100 $CONFIG_ARCH_PNX0106
+   dep_bool '  LPAS1 board' CONFIG_PNX0106_LPAS1 $CONFIG_ARCH_PNX0106
+   dep_bool '  LDMA1 board' CONFIG_PNX0106_LDMA1 $CONFIG_ARCH_PNX0106
+   dep_bool '  RSS1 board' CONFIG_PNX0106_RSS1 $CONFIG_ARCH_PNX0106
+   dep_bool '  RSC1 board' CONFIG_PNX0106_RSC1 $CONFIG_ARCH_PNX0106
+   dep_bool '  HasLi-7 AHub board' CONFIG_PNX0106_HASLI7 $CONFIG_ARCH_PNX0106
+   dep_bool '  HacLi-7 AHub board' CONFIG_PNX0106_HACLI7 $CONFIG_ARCH_PNX0106
+   dep_bool '  HasLi-7 AHub board' CONFIG_PNX0106_MCIH $CONFIG_ARCH_MCIH
+   dep_bool '  HacLi-7 AHub board' CONFIG_PNX0106_MCI $CONFIG_ARCH_MCI
+   comment 'PNX0106 specific options'
+   dep_bool '  Enable 10bit ADC driver' CONFIG_PNX0106_ADC $CONFIG_ARCH_PNX0106
+   dep_bool '  Enable BLAS SPI interface driver' CONFIG_PNX0106_BLAS_SPI $CONFIG_ARCH_PNX0106
+   dep_bool '  Enable BLAS SPI interface driver (SD Card compatible API)' CONFIG_PNX0106_BLAS_SPISD $CONFIG_ARCH_PNX0106
+   dep_bool '  Enable CPLD based 16bit PCCARD interface driver' CONFIG_PNX0106_PCCARD_CPLD $CONFIG_ARCH_PNX0106
+   dep_bool '  Enable ECO-Standby support' CONFIG_PNX0106_ECOSTANDBY $CONFIG_ARCH_PNX0106
+   dep_bool '    ECO-Standby LCD Backlight control' CONFIG_PNX0106_ECOSTANDBY_LCD_BACKLIGHT_CONTROL $CONFIG_PNX0106_ECOSTANDBY
+   dep_bool '      ECO-Standby LCD Backlight control - Off high' CONFIG_PNX0106_ECOSTANDBY_LCD_BACKLIGHT_OFF_HIGH $CONFIG_PNX0106_ECOSTANDBY_LCD_BACKLIGHT_CONTROL
+   dep_bool '  Enable Epics DSP driver' CONFIG_PNX0106_EPICS $CONFIG_ARCH_PNX0106
+   dep_bool '  Enable Epics DSP AAC driver' CONFIG_PNX0106_EPICS_AAC $CONFIG_PNX0106_EPICS
+   dep_bool '  Enable Epics DSP MP3 driver' CONFIG_PNX0106_EPICS_MP3 $CONFIG_PNX0106_EPICS
+   dep_bool '  Enable Epics DSP WMA driver' CONFIG_PNX0106_EPICS_WMA $CONFIG_PNX0106_EPICS
+   dep_bool '  Enable LCD interface access wrapper' CONFIG_PNX0106_LCDIF_WRAPPER $CONFIG_ARCH_PNX0106
+   dep_bool '  Enable onchip 16bit PCCARD interface driver' CONFIG_PNX0106_PCCARD $CONFIG_ARCH_PNX0106
+   dep_bool '  Enable TSC access driver' CONFIG_PNX0106_TSCDEV $CONFIG_ARCH_PNX0106
+   dep_bool '  Enable USB2 EHCI OTG complaint core' CONFIG_USB_EHCI_PNX0106 $CONFIG_ARCH_PNX0106
+   endmenu
+fi
 
 mainmenu_option next_comment
 comment 'Archimedes/A5000 Implementations'
@@ -144,6 +208,7 @@ endmenu
 mainmenu_option next_comment
 comment 'AT91RM9200 Implementations'
 dep_bool '  Atmel AT91RM9200 Development Board' CONFIG_ARCH_AT91RM9200DK $CONFIG_ARCH_AT91RM9200
+dep_bool '  Cogent CSB337' CONFIG_MACH_CSB337 $CONFIG_ARCH_AT91RM9200
 endmenu
 
 mainmenu_option next_comment
@@ -187,6 +252,12 @@ if [ "$CONFIG_ARCH_ARCA5K" = "y" -o \
    define_bool CONFIG_ARCH_ACORN y
 else
    define_bool CONFIG_ARCH_ACORN n
+fi
+
+if [ "$CONFIG_ARCH_CAMELOT" = "y" ]; then
+   define_bool CONFIG_PLD y
+else
+   define_bool CONFIG_PLD n
 fi
 
 #####################################################################
@@ -288,6 +359,7 @@ fi
 # ARM720T
 if [ "$CONFIG_ARCH_CLPS711X" = "y" -o \
      "$CONFIG_ARCH_L7200"    = "y" -o \
+     "$CONFIG_ARCH_SSA"      = "y" -o \
      "$CONFIG_ARCH_CDB89712" = "y" ]; then
    define_bool CONFIG_CPU_ARM720T y
 else
@@ -315,24 +387,45 @@ fi
 # ARM922T
 if [ "$CONFIG_ARCH_CAMELOT" = "y" ]; then
    define_bool CONFIG_CPU_ARM922T y
-   define_bool CONFIG_PLD y
 else
-   define_bool CONFIG_CPU_ARM922T n
-   define_bool CONFIG_PLD n
+   if [ "$CONFIG_ARCH_INTEGRATOR" = "y" ]; then
+      bool 'Support ARM922T(Excalibur) processor' CONFIG_ARM922T
+   else
+      define_bool CONFIG_CPU_ARM922T n
+   fi
 fi
 
 # ARM926T
-if [ "$CONFIG_ARCH_INTEGRATOR" = "y" ]; then
-   bool 'Support ARM926T processor' CONFIG_CPU_ARM926T
+
+if [ "$CONFIG_ARCH_PNX0106" = "y" ]; then
+   define_bool CONFIG_CPU_ARM926T y
 else
-   define_bool CONFIG_CPU_ARM926T n
+   if [ "$CONFIG_ARCH_INTEGRATOR" = "y" ]; then
+      bool 'Support ARM926TEJ-S processor' CONFIG_CPU_ARM926T
+   else
+      define_bool CONFIG_CPU_ARM926T n
+   fi
 fi
 
 # ARM1020
 if [ "$CONFIG_ARCH_INTEGRATOR" = "y" ]; then
-   bool 'Support ARM1020 processor' CONFIG_CPU_ARM1020
+   bool 'Support ARM1020T (Rev0) processor' CONFIG_CPU_ARM1020
 else
     define_bool CONFIG_CPU_ARM1020 n
+fi
+
+# ARM1020E
+if [ "$CONFIG_ARCH_INTEGRATOR" = "y" ]; then
+   bool 'Support ARM1020E (Rev1) processor' CONFIG_CPU_ARM1020E
+else
+    define_bool CONFIG_CPU_ARM1020E n
+fi
+
+# ARM1022
+if [ "$CONFIG_ARCH_INTEGRATOR" = "y" ]; then
+   bool 'Support ARM1022 processor' CONFIG_CPU_ARM1020E
+else
+    define_bool CONFIG_CPU_ARM1022 n
 fi
 
 # ARM1026EJ-S
@@ -376,6 +469,7 @@ if [ "$CONFIG_ARCH_EBSA110"    = "y" -o "$CONFIG_FOOTBRIDGE"    = "y" -o \
      "$CONFIG_ARCH_TBOX"       = "y" -o "$CONFIG_ARCH_SHARK"    = "y" -o \
      "$CONFIG_ARCH_NEXUSPCI"   = "y" -o "$CONFIG_ARCH_CLPS711X" = "y" -o \
      "$CONFIG_ARCH_INTEGRATOR" = "y" -o "$CONFIG_ARCH_SA1100"   = "y" -o \
+     "$CONFIG_ARCH_SSA"        = "y" -o \
      "$CONFIG_ARCH_L7200"      = "y" -o "$CONFIG_ARCH_ANAKIN"	= "y" -o \
      "$CONFIG_ARCH_CAMELOT"    = "y" -o "$CONFIG_ARCH_MX1ADS"   = "y" -o \
      "$CONFIG_ARCH_OMAHA"      = "y" -o "$CONFIG_ARCH_AT91RM9200" = "y" ]; then
@@ -384,29 +478,41 @@ else
    define_bool CONFIG_CPU_32v4 n
 fi
 
+if [ "$CONFIG_ARCH_PNX0106"	= "y" ]; then
+   define_bool CONFIG_CPU_32v5 y
+else
+   define_bool CONFIG_CPU_32v5 n
+fi
+
+
 comment 'Processor Features'
 
 if [ "$CONFIG_CPU_ARM720T" = "y" -o "$CONFIG_CPU_ARM920T" = "y" -o \
      "$CONFIG_CPU_ARM922T" = "y" -o "$CONFIG_CPU_ARM926T" = "y" -o \
-     "$CONFIG_CPU_ARM1020" = "y" -o "$CONFIG_CPU_ARM1026" = "y" ]; then
+     "$CONFIG_CPU_ARM1020" = "y" -o "$CONFIG_CPU_ARM1020E" = "y" -o \
+     "$CONFIG_CPU_ARM1022" = "y" -o "$CONFIG_CPU_ARM1026" = "y" ]; then
+   dep_bool 'Enable workaround for lost writes (Arm Errata 319664)' CONFIG_ARCH_LOST_WRITES
    dep_bool 'Support Thumb instructions (EXPERIMENTAL)' CONFIG_ARM_THUMB $CONFIG_EXPERIMENTAL
 fi
 if [ "$CONFIG_CPU_ARM920T" = "y" -o "$CONFIG_CPU_ARM922T" = "y" -o \
      "$CONFIG_CPU_ARM926T" = "y" -o "$CONFIG_CPU_ARM1020" = "y" -o \
+     "$CONFIG_CPU_ARM1020E" = "y" -o "$CONFIG_CPU_ARM1022" = "y" -o \
      "$CONFIG_CPU_ARM1026" = "y" ]; then
    bool 'Disable I-Cache' CONFIG_CPU_ICACHE_DISABLE
    bool 'Disable D-Cache' CONFIG_CPU_DCACHE_DISABLE
-   if [ "$CONFIG_CPU_DISABLE_DCACHE" = "n" ]; then
+   if [ "$CONFIG_CPU_DCACHE_DISABLE" = "n" ]; then
       bool 'Force write through D-cache' CONFIG_CPU_DCACHE_WRITETHROUGH
    fi
 fi
 if [ "$CONFIG_CPU_ARM926T" = "y" -o "$CONFIG_CPU_ARM1020" = "y" -o \
+     "$CONFIG_CPU_ARM1020E" = "y" -o "$CONFIG_CPU_ARM1022" = "y" -o \
      "$CONFIG_CPU_ARM1026" = "y" ]; then
    if [ "$CONFIG_CPU_ICACHE_DISABLE" = "n" -o "$CONFIG_CPU_DCACHE_DISABLE" = "n" ]; then
       bool 'Round robin I and D cache replacement algorithm' CONFIG_CPU_CACHE_ROUND_ROBIN
    fi
 fi
-if [ "$CONFIG_CPU_ARM1020" = "y" -o "$CONFIG_CPU_ARM1026" = "y" ]; then
+if [ "$CONFIG_CPU_ARM1020" = "y" -o "$CONFIG_CPU_ARM1020E" = "y" -o \
+    "$CONFIG_CPU_ARM1026" = "y" -o "$CONFIG_CPU_ARM1022" = "y" ]; then
    bool 'Disable branch prediction' CONFIG_CPU_BPREDICT_DISABLE
 fi
 
@@ -491,7 +597,7 @@ tristate 'NWFPE math emulation' CONFIG_FPE_NWFPE
 if [ "$CONFIG_FPE_NWFPE" != "n" ]; then
   bool '  Support extended precision' CONFIG_FPE_NWFPE_XP
 fi
-if [ "$CONFIG_CPU_26" = "n" -a "$CONFIG_CPU_32v3" = "n" ]; then
+if [ "$CONFIG_CPU_26" = "n" ]; then
    dep_tristate 'FastFPE math emulation (EXPERIMENTAL)' CONFIG_FPE_FASTFPE $CONFIG_EXPERIMENTAL
 fi
 choice 'Kernel core (/proc/kcore) format' \
@@ -514,7 +620,10 @@ if [ "$CONFIG_ARCH_NETWINDER" = "y" -o  \
      "$CONFIG_ARCH_INTEGRATOR" = "y" -o \
      "$CONFIG_ARCH_CDB89712" = "y" -o   \
      "$CONFIG_ARCH_P720T" = "y" -o	\
-     "$CONFIG_ARCH_OMAHA" = "y" ]; then
+     "$CONFIG_ARCH_SSA" = "y" -o	\
+     "$CONFIG_ARCH_PNX0106" = "y" -o	\
+     "$CONFIG_ARCH_OMAHA" = "y" -o	\
+     "$CONFIG_ARCH_AT91RM9200" = "y" ]; then
    bool 'Timer and CPU usage LEDs' CONFIG_LEDS
    if [ "$CONFIG_LEDS" = "y" ]; then
       if [ "$CONFIG_ARCH_NETWINDER" = "y" -o  \
@@ -524,7 +633,10 @@ if [ "$CONFIG_ARCH_NETWINDER" = "y" -o  \
 	   "$CONFIG_ARCH_SA1100" = "y" -o     \
            "$CONFIG_ARCH_INTEGRATOR" = "y" -o \
 	   "$CONFIG_ARCH_P720T" = "y" -o      \
-	   "$CONFIG_ARCH_OMAHA" = "y" ]; then
+	   "$CONFIG_ARCH_SSA" = "y" -o        \
+	   "$CONFIG_ARCH_PNX0106" = "y" -o    \
+	   "$CONFIG_ARCH_OMAHA" = "y" -o      \
+	   "$CONFIG_ARCH_AT91RM9200" = "y" ]; then
          bool '  Timer LED' CONFIG_LEDS_TIMER
          bool '  CPU usage LED' CONFIG_LEDS_CPU
       fi
@@ -678,6 +790,8 @@ if [ "$CONFIG_ARCH_ACORN" = "y" -o \
      "$CONFIG_ARCH_TBOX" = "y" -o \
      "$CONFIG_ARCH_SHARK" = "y" -o \
      "$CONFIG_ARCH_SA1100" = "y" -o \
+     "$CONFIG_ARCH_SSA" = "y" -o \
+     "$CONFIG_ARCH_PNX0106" = "y" -o \
      "$CONFIG_PCI" = "y" ]; then
    mainmenu_option next_comment
    comment 'Sound'
@@ -700,20 +814,11 @@ fi
 mainmenu_option next_comment
 comment 'Kernel hacking'
 
-# RMK wants arm kernels compiled with frame pointers so hardwire this to y.  If
-# you know what you are doing and are willing to live without stack traces, you
-# can get a slightly smaller kernel by setting this option to n, but then RMK
-# will have to kill you ;).
-if [ "$CONFIG_ARCH_OMAHA" = "y" ]; then
-    # 
-    # Note: We want all the performance we can get, so this means
-    # we accept the debugging limitations of setting CONFIG_FRAME_POINTER=n
-    # -- ahaigh@arm.com (23 August 2002)
-    define_bool CONFIG_FRAME_POINTER n
-else
-    define_bool CONFIG_FRAME_POINTER y
-fi
-
+# RMK wants arm kernels compiled with frame pointers.
+# If you know what you are doing and are willing to live without stack traces,
+# you can get a slightly smaller kernel by setting this option to n, but then
+# RMK will have to kill you ;).
+bool 'Use Frame Pointer' CONFIG_FRAME_POINTER
 bool 'Verbose user fault messages' CONFIG_DEBUG_USER
 bool 'Include debugging information in kernel binary' CONFIG_DEBUG_INFO
 dep_bool 'Disable pgtable cache' CONFIG_NO_PGT_CACHE $CONFIG_CPU_26
@@ -725,14 +830,12 @@ dep_bool '  Spinlock debugging' CONFIG_DEBUG_SPINLOCK $CONFIG_DEBUG_KERNEL
 dep_bool '  Wait queue debugging' CONFIG_DEBUG_WAITQ $CONFIG_DEBUG_KERNEL
 dep_bool '  Verbose BUG() reporting (adds 70K)' CONFIG_DEBUG_BUGVERBOSE $CONFIG_DEBUG_KERNEL
 dep_bool '  Verbose kernel error messages' CONFIG_DEBUG_ERRORS $CONFIG_DEBUG_KERNEL
+dep_bool '  Kernel panic postmortem debugging' CONFIG_DEBUG_PANIC_POSTMORTEM $CONFIG_DEBUG_KERNEL
 # These options are only for real kernel hackers who want to get their hands dirty.
 dep_bool '  Kernel low-level debugging functions' CONFIG_DEBUG_LL $CONFIG_DEBUG_KERNEL
 dep_bool '    Kernel low-level debugging messages via footbridge serial port' CONFIG_DEBUG_DC21285_PORT $CONFIG_DEBUG_LL $CONFIG_FOOTBRIDGE
 dep_bool '    Kernel low-level debugging messages via UART2' CONFIG_DEBUG_CLPS711X_UART2 $CONFIG_DEBUG_LL $CONFIG_ARCH_CLPS711X
-
-int 'Kernel messages buffer length shift (0 = default)' CONFIG_LOG_BUF_SHIFT 0
-
 endmenu
 
-source crypto/Config.in
 source lib/Config.in
+

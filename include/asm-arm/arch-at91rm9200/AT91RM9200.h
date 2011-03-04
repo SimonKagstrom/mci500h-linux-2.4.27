@@ -171,7 +171,7 @@ typedef volatile unsigned int AT91_REG;
 #define AT91C_PA23_TXD2		(AT91C_PIO_PA23) //  USART 2 Transmit Data
 #define AT91C_PA23_IRQ3		(AT91C_PIO_PA23) //  Interrupt input 3
 #define AT91C_PIO_PA24		(1 << 24)
-#define AT91C_PA24_SCK2		(AT91C_PIO_PA24) //  USART2 Serial Clock
+#define AT91C_PA24_SCK2		(AT91C_PIO_PA24) //  USART 2 Serial Clock
 #define AT91C_PA24_PCK1		(AT91C_PIO_PA24) //  PMC Programmable Clock Output 1
 #define AT91C_PIO_PA25		(1 << 25)
 #define AT91C_PA25_TWD		(AT91C_PIO_PA25) //  TWI Two-wire Serial Data
@@ -260,7 +260,7 @@ typedef volatile unsigned int AT91_REG;
 #define AT91C_PIO_PB21		(1 << 21)
 #define AT91C_PB21_RXD1		(AT91C_PIO_PB21) //  USART 1 Receive Data
 #define AT91C_PIO_PB22		(1 << 22)
-#define AT91C_PB22_SCK1		(AT91C_PIO_PB22) //  USART1 Serial Clock
+#define AT91C_PB22_SCK1		(AT91C_PIO_PB22) //  USART 1 Serial Clock
 #define AT91C_PIO_PB23		(1 << 23)
 #define AT91C_PB23_DCD1		(AT91C_PIO_PB23) //  USART 1 Data Carrier Detect
 #define AT91C_PIO_PB24		(1 << 24)

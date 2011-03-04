@@ -10,7 +10,7 @@ O_TARGET	:= usbdrv.o
 
 # Objects that export symbols.
 
-export-objs		:= hcd.o usb.o ov511.o pwc-uncompress.o
+export-objs		:= hcd.o usb.o ov511.o pwc-uncompress.o 
 
 # Multipart objects.
 
@@ -52,15 +52,14 @@ obj-	:=
 obj-$(CONFIG_USB)		+= usbcore.o
 
 # EHCI should initialize/link before the other HCDs
-ifeq ($(CONFIG_USB_EHCI_HCD),y)
-	obj-y += host/ehci-hcd.o
-endif
-
 ifneq ($(CONFIG_USB_EHCI_HCD),n)
 	usbcore-objs		+= hcd.o
 endif
 
 subdir-$(CONFIG_USB_EHCI_HCD)	+= host
+ifeq ($(CONFIG_USB_EHCI_HCD),y)
+	obj-y += host/ehci-hcd.o
+endif
 
 subdir-$(CONFIG_USB_UHCI_ALT)	+= host
 ifeq ($(CONFIG_USB_UHCI_ALT),y)
@@ -74,6 +73,14 @@ endif
 
 subdir-$(CONFIG_USB_OHCI)	+= host
 ifeq ($(CONFIG_USB_OHCI),y)
+	obj-y += host/usb-ohci.o host/usb-ohci-pci.o
+endif
+subdir-$(CONFIG_USB_OHCI_SA1111)+= host
+ifeq ($(CONFIG_USB_OHCI),y)
+	obj-y += host/usb-ohci.o host/usb-ohci-sa1111.o
+endif
+subdir-$(CONFIG_USB_OHCI_AT91)	+= host
+ifeq ($(CONFIG_USB_OHCI_AT91),y)
 	obj-y += host/usb-ohci.o
 endif
 
@@ -85,8 +92,6 @@ obj-$(CONFIG_USB_HID)		+= hid.o
 obj-$(CONFIG_USB_KBD)		+= usbkbd.o
 obj-$(CONFIG_USB_AIPTEK)	+= aiptek.o
 obj-$(CONFIG_USB_WACOM)		+= wacom.o
-obj-$(CONFIG_USB_KBTAB)		+= kbtab.o
-obj-$(CONFIG_USB_POWERMATE)	+= powermate.o
 
 obj-$(CONFIG_USB_SCANNER)	+= scanner.o
 obj-$(CONFIG_USB_ACM)		+= acm.o

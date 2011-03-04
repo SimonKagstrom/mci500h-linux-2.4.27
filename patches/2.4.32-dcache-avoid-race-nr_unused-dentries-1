@@ -1,0 +1,44 @@
+Family: 4-min
+Subject: [PATCH] dcache: avoid race when updating nr_unused count of unused dentries
+From: NeilBrown <neilb@cse.unsw.edu.au>
+Date: 1133265853 +0100
+
+ ChangeSet
+   2004/05/29 10:58:56-07:00 akpm@osdl.org
+   [PATCH] fs/dcache.c: avoid race when updating nr_unused count of unused dentries.
+
+   From: NeilBrown <neilb@cse.unsw.edu.au>
+
+   d_count == 1 is no guarantee that dentry is on the dentry_unused list, even
+   if it has just been incremented inside dcache_lock, as dput can decrement
+   at any time.
+
+   This test from Greg Banks is much safer, and is more transparently correct.
+
+   Cc: Maneesh Soni <maneesh@in.ibm.com>, Dipankar Sarma <dipankar@in.ibm.com>
+   From: Greg Banks <gnb@melbourne.sgi.com>
+   Signed-off-by: Neil Brown <neilb@cse.unsw.edu.au>
+   Signed-off-by: Andrew Morton <akpm@osdl.org>
+   Signed-off-by: Linus Torvalds <torvalds@osdl.org>
+
+---
+
+ fs/dcache.c |    2 +-
+ 1 files changed, 1 insertions(+), 1 deletions(-)
+
+55a2bfb79d5c6d9cb2aed3419c8d6c02a30d3cc8
+diff --git a/fs/dcache.c b/fs/dcache.c
+index d120eb5..fce3e77 100644
+--- a/fs/dcache.c
++++ b/fs/dcache.c
+@@ -221,7 +221,7 @@ int d_invalidate(struct dentry * dentry)
+ static inline struct dentry * __dget_locked(struct dentry *dentry)
+ {
+ 	atomic_inc(&dentry->d_count);
+-	if (atomic_read(&dentry->d_count) == 1) {
++	if (!list_empty(&dentry->d_lru)) {
+ 		dentry_stat.nr_unused--;
+ 		list_del_init(&dentry->d_lru);
+ 	}
+-- 
+1.0.6

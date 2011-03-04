@@ -12,7 +12,7 @@
 #include <asm/errno.h>
 
 	.text
-	.align	5
+	.align	4
 
 /* Prototype: unsigned long __arch_strnlen_user(const char *str, long n)
  * Purpose  : get length of a string in user memory

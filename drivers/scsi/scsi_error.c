@@ -35,6 +35,8 @@
 #include "hosts.h"
 #include "constants.h"
 
+#include <scsi/scsi_ioctl.h> /* grr */
+
 /*
  * We must always allow SHUTDOWN_SIGS.  Even if we are not a module,
  * the host drivers that we are using may be loaded as modules, and
@@ -48,6 +50,13 @@
  * options would be SIGPWR, I suppose.
  */
 #define SHUTDOWN_SIGS	(sigmask(SIGHUP))
+
+/*
+ * The number of times we retry a REQUEST SENSE and TEST UNIT READY
+ * respectively.  This is arbitary.
+ */
+#define SENSE_RETRIES	5
+#define TUR_RETRIES	5
 
 #ifdef DEBUG
 #define SENSE_TIMEOUT SCSI_TIMEOUT
@@ -373,16 +382,12 @@ int scsi_sense_valid(Scsi_Cmnd * SCpnt)
  */
 STATIC int scsi_eh_retry_command(Scsi_Cmnd * SCpnt)
 {
-	memcpy((void *) SCpnt->cmnd, (void *) SCpnt->data_cmnd,
-	       sizeof(SCpnt->data_cmnd));
-	SCpnt->request_buffer = SCpnt->buffer;
-	SCpnt->request_bufflen = SCpnt->bufflen;
-	SCpnt->use_sg = SCpnt->old_use_sg;
-	SCpnt->cmd_len = SCpnt->old_cmd_len;
-	SCpnt->sc_data_direction = SCpnt->sc_old_data_direction;
-	SCpnt->underflow = SCpnt->old_underflow;
+	int tries = 0;
 
-	scsi_send_eh_cmnd(SCpnt, SCpnt->timeout_per_command);
+	do {
+		scsi_setup_cmd_retry(SCpnt);
+		scsi_send_eh_cmnd(SCpnt, SCpnt->timeout_per_command);
+	} while (SCpnt->eh_state == NEEDS_RETRY && tries++ < SCpnt->allowed);
 
 	/*
 	 * Hey, we are done.  Let's look to see what happened.
@@ -409,15 +414,9 @@ STATIC int scsi_request_sense(Scsi_Cmnd * SCpnt)
 	static unsigned char generic_sense[6] =
 	{REQUEST_SENSE, 0, 0, 0, 255, 0};
 	unsigned char scsi_result0[256], *scsi_result = NULL;
-	int saved_result;
+	int saved_result, tries;
 
 	ASSERT_LOCK(&io_request_lock, 0);
-
-	memcpy((void *) SCpnt->cmnd, (void *) generic_sense,
-	       sizeof(generic_sense));
-
-	if (SCpnt->device->scsi_level <= SCSI_2)
-		SCpnt->cmnd[1] = SCpnt->lun << 5;
 
 	scsi_result = (!SCpnt->host->hostt->unchecked_isa_dma)
 	    ? &scsi_result0[0] : kmalloc(512, GFP_ATOMIC | GFP_DMA);
@@ -426,24 +425,41 @@ STATIC int scsi_request_sense(Scsi_Cmnd * SCpnt)
 		printk("cannot allocate scsi_result in scsi_request_sense.\n");
 		return FAILED;
 	}
-	/*
-	 * Zero the sense buffer.  Some host adapters automatically always request
-	 * sense, so it is not a good idea that SCpnt->request_buffer and
-	 * SCpnt->sense_buffer point to the same address (DB).
-	 * 0 is not a valid sense code. 
-	 */
-	memset((void *) SCpnt->sense_buffer, 0, sizeof(SCpnt->sense_buffer));
-	memset((void *) scsi_result, 0, 256);
 
 	saved_result = SCpnt->result;
-	SCpnt->request_buffer = scsi_result;
-	SCpnt->request_bufflen = 256;
-	SCpnt->use_sg = 0;
-	SCpnt->cmd_len = COMMAND_SIZE(SCpnt->cmnd[0]);
-	SCpnt->sc_data_direction = SCSI_DATA_READ;
-	SCpnt->underflow = 0;
 
-	scsi_send_eh_cmnd(SCpnt, SENSE_TIMEOUT);
+	tries = 0;
+	do {
+		memcpy((void *) SCpnt->cmnd, (void *) generic_sense,
+		       sizeof(generic_sense));
+
+		if (SCpnt->device->scsi_level <= SCSI_2)
+			SCpnt->cmnd[1] = SCpnt->lun << 5;
+
+		/*
+		 * Zero the sense buffer.  Some host adapters automatically
+		 * always request sense, so it is not a good idea that
+		 * SCpnt->request_buffer and SCpnt->sense_buffer point to
+		 * the same address (DB).  0 is not a valid sense code. 
+		 */
+		memset((void *) SCpnt->sense_buffer, 0,
+		       sizeof(SCpnt->sense_buffer));
+		memset((void *) scsi_result, 0, 256);
+
+		SCpnt->request_buffer = scsi_result;
+		SCpnt->request_bufflen = 256;
+		SCpnt->use_sg = 0;
+		SCpnt->cmd_len = COMMAND_SIZE(SCpnt->cmnd[0]);
+		SCpnt->sc_data_direction = SCSI_DATA_READ;
+		SCpnt->underflow = 0;
+
+		scsi_send_eh_cmnd(SCpnt, SENSE_TIMEOUT);
+		/*
+		 * If the SCSI device responded with "logical unit
+		 * is in process of becoming ready", we need to
+		 * retry this command.
+		 */
+	} while (SCpnt->eh_state == NEEDS_RETRY && tries++ < SENSE_RETRIES);
 
 	/* Last chance to have valid sense data */
 	if (!scsi_sense_valid(SCpnt))
@@ -458,15 +474,8 @@ STATIC int scsi_request_sense(Scsi_Cmnd * SCpnt)
 	 * When we eventually call scsi_finish, we really wish to complete
 	 * the original request, so let's restore the original data. (DB)
 	 */
-	memcpy((void *) SCpnt->cmnd, (void *) SCpnt->data_cmnd,
-	       sizeof(SCpnt->data_cmnd));
 	SCpnt->result = saved_result;
-	SCpnt->request_buffer = SCpnt->buffer;
-	SCpnt->request_bufflen = SCpnt->bufflen;
-	SCpnt->use_sg = SCpnt->old_use_sg;
-	SCpnt->cmd_len = SCpnt->old_cmd_len;
-	SCpnt->sc_data_direction = SCpnt->sc_old_data_direction;
-	SCpnt->underflow = SCpnt->old_underflow;
+	scsi_setup_cmd_retry(SCpnt);
 
 	/*
 	 * Hey, we are done.  Let's look to see what happened.
@@ -484,40 +493,42 @@ STATIC int scsi_test_unit_ready(Scsi_Cmnd * SCpnt)
 {
 	static unsigned char tur_command[6] =
 	{TEST_UNIT_READY, 0, 0, 0, 0, 0};
+	int tries = 0;
 
-	memcpy((void *) SCpnt->cmnd, (void *) tur_command,
-	       sizeof(tur_command));
+	do {
+		memcpy((void *) SCpnt->cmnd, (void *) tur_command,
+		       sizeof(tur_command));
 
-	if (SCpnt->device->scsi_level <= SCSI_2)
-		SCpnt->cmnd[1] = SCpnt->lun << 5;
+		if (SCpnt->device->scsi_level <= SCSI_2)
+			SCpnt->cmnd[1] = SCpnt->lun << 5;
 
-	/*
-	 * Zero the sense buffer.  The SCSI spec mandates that any
-	 * untransferred sense data should be interpreted as being zero.
-	 */
-	memset((void *) SCpnt->sense_buffer, 0, sizeof(SCpnt->sense_buffer));
+		/*
+		 * Zero the sense buffer.  The SCSI spec mandates that any
+		 * untransferred sense data should be interpreted as being zero.
+		 */
+		memset((void *) SCpnt->sense_buffer, 0,
+		       sizeof(SCpnt->sense_buffer));
 
-	SCpnt->request_buffer = NULL;
-	SCpnt->request_bufflen = 0;
-	SCpnt->use_sg = 0;
-	SCpnt->cmd_len = COMMAND_SIZE(SCpnt->cmnd[0]);
-	SCpnt->underflow = 0;
-	SCpnt->sc_data_direction = SCSI_DATA_NONE;
+		SCpnt->request_buffer = NULL;
+		SCpnt->request_bufflen = 0;
+		SCpnt->use_sg = 0;
+		SCpnt->cmd_len = COMMAND_SIZE(SCpnt->cmnd[0]);
+		SCpnt->underflow = 0;
+		SCpnt->sc_data_direction = SCSI_DATA_NONE;
 
-	scsi_send_eh_cmnd(SCpnt, SENSE_TIMEOUT);
+		scsi_send_eh_cmnd(SCpnt, SENSE_TIMEOUT);
+		/*
+		 * If the SCSI device responded with "logical unit
+		 * is in process of becoming ready", we need to
+		 * retry this command.
+		 */
+	} while (SCpnt->eh_state == NEEDS_RETRY && tries++ < TUR_RETRIES);
 
 	/*
 	 * When we eventually call scsi_finish, we really wish to complete
 	 * the original request, so let's restore the original data. (DB)
 	 */
-	memcpy((void *) SCpnt->cmnd, (void *) SCpnt->data_cmnd,
-	       sizeof(SCpnt->data_cmnd));
-	SCpnt->request_buffer = SCpnt->buffer;
-	SCpnt->request_bufflen = SCpnt->bufflen;
-	SCpnt->use_sg = SCpnt->old_use_sg;
-	SCpnt->cmd_len = SCpnt->old_cmd_len;
-	SCpnt->sc_data_direction = SCpnt->sc_old_data_direction;
-	SCpnt->underflow = SCpnt->old_underflow;
+	scsi_setup_cmd_retry(SCpnt);
 
 	/*
 	 * Hey, we are done.  Let's look to see what happened.
@@ -577,7 +588,6 @@ STATIC void scsi_send_eh_cmnd(Scsi_Cmnd * SCpnt, int timeout)
 
 	host = SCpnt->host;
 
-      retry:
 	/*
 	 * We will use a queued command if possible, otherwise we will emulate the
 	 * queuing and calling of completion function ourselves.
@@ -660,14 +670,13 @@ STATIC void scsi_send_eh_cmnd(Scsi_Cmnd * SCpnt, int timeout)
 		SCSI_LOG_ERROR_RECOVERY(3,
 			printk("scsi_send_eh_cmnd: scsi_eh_completed_normally %x\n", ret));
 		switch (ret) {
-		case SUCCESS:
-			SCpnt->eh_state = SUCCESS;
-			break;
-		case NEEDS_RETRY:
-			goto retry;
-		case FAILED:
 		default:
-			SCpnt->eh_state = FAILED;
+			ret = FAILED;
+			/*FALLTHROUGH*/
+		case FAILED:
+		case NEEDS_RETRY:
+		case SUCCESS:
+			SCpnt->eh_state = ret;
 			break;
 		}
 	} else {
@@ -1208,6 +1217,82 @@ STATIC int scsi_check_sense(Scsi_Cmnd * SCpnt)
 
 
 /*
+ * Function:	scsi_eh_lock_done
+ *
+ * Purpose:	free the command and request structures associated
+ *		with the error handlers door lock request
+ *
+ * Arguments:	SCpnt - the SCSI command block for the door lock request.
+ *
+ * Returns:	Nothing
+ *
+ * Notes:	We completed the asynchronous door lock request, and
+ *		it has either locked the door or failed.  We must free
+ *		the command structures associated with this request.
+ */
+static void scsi_eh_lock_done(struct scsi_cmnd *SCpnt)
+{
+	struct scsi_request *SRpnt = SCpnt->sc_request;
+
+	SCpnt->sc_request = NULL;
+	SRpnt->sr_command = NULL;
+
+	scsi_release_command(SCpnt);
+	scsi_release_request(SRpnt);
+}
+
+
+/*
+ * Function:	scsi_eh_lock_door
+ *
+ * Purpose:	Prevent medium removal for the specified device
+ *
+ * Arguments:	dev - SCSI device to prevent medium removal
+ *
+ * Locking:	We must be called from process context;
+ *		scsi_allocate_request() may sleep.
+ *
+ * Returns:	Nothing
+ *
+ * Notes:	We queue up an asynchronous "ALLOW MEDIUM REMOVAL" request
+ *		on the head of the devices request queue, and continue.
+ *
+ * Bugs:	scsi_allocate_request() may sleep waiting for existing
+ *		requests to be processed.  However, since we haven't
+ *		kicked off any request processing for this host, this
+ *		may deadlock.
+ *
+ *		If scsi_allocate_request() fails for what ever reason,
+ *		we completely forget to lock the door.
+ */
+STATIC void scsi_eh_lock_door(struct scsi_device *dev)
+{
+	struct scsi_request *SRpnt = scsi_allocate_request(dev);
+
+	if (SRpnt == NULL) {
+		/* what now? */
+		return;
+	}
+
+	SRpnt->sr_cmnd[0] = ALLOW_MEDIUM_REMOVAL;
+	SRpnt->sr_cmnd[1] = (dev->scsi_level <= SCSI_2) ? (dev->lun << 5) : 0;
+	SRpnt->sr_cmnd[2] = 0;
+	SRpnt->sr_cmnd[3] = 0;
+	SRpnt->sr_cmnd[4] = SCSI_REMOVAL_PREVENT;
+	SRpnt->sr_cmnd[5] = 0;
+	SRpnt->sr_data_direction = SCSI_DATA_NONE;
+	SRpnt->sr_bufflen = 0;
+	SRpnt->sr_buffer = NULL;
+	SRpnt->sr_allowed = 5;
+	SRpnt->sr_done = scsi_eh_lock_done;
+	SRpnt->sr_timeout_per_command = 10 * HZ;
+	SRpnt->sr_cmd_len = COMMAND_SIZE(SRpnt->sr_cmnd[0]);
+
+	scsi_insert_special_req(SRpnt, 1);
+}
+
+
+/*
  * Function:  scsi_restart_operations
  *
  * Purpose:     Restart IO operations to the specified host.
@@ -1229,6 +1314,15 @@ STATIC void scsi_restart_operations(struct Scsi_Host *host)
 	ASSERT_LOCK(&io_request_lock, 0);
 
 	/*
+	 * If the door was locked, we need to insert a door lock request
+	 * onto the head of the SCSI request queue for the device.  There
+	 * is no point trying to lock the door of an off-line device.
+	 */
+	for (SDpnt = host->host_queue; SDpnt; SDpnt = SDpnt->next)
+		if (SDpnt->online && SDpnt->locked)
+			scsi_eh_lock_door(SDpnt);
+
+	/*
 	 * Next free up anything directly waiting upon the host.  This will be
 	 * requests for character device operations, and also for ioctls to queued
 	 * block devices.
@@ -1248,8 +1342,7 @@ STATIC void scsi_restart_operations(struct Scsi_Host *host)
 		request_queue_t *q;
 		if ((host->can_queue > 0 && (host->host_busy >= host->can_queue))
 		    || (host->host_blocked)
-		    || (host->host_self_blocked)
-		    || (SDpnt->device_blocked)) {
+		    || (host->host_self_blocked)) {
 			break;
 		}
 		q = &SDpnt->request_queue;
@@ -1257,6 +1350,621 @@ STATIC void scsi_restart_operations(struct Scsi_Host *host)
 	}
 	spin_unlock_irqrestore(&io_request_lock, flags);
 }
+
+/*
+ * Function:	scsi_eh_find_failed_command
+ *
+ * Purpose:	Find a failed Scsi_Cmnd structure on a device.
+ *
+ * Arguments:	SDpnt	- Scsi_Device structure
+ *
+ * Returns:	Pointer to Scsi_Cmnd structure, or NULL on failure
+ */
+STATIC Scsi_Cmnd *scsi_eh_find_failed_command(Scsi_Device *SDpnt)
+{
+	Scsi_Cmnd *SCpnt;
+
+	for (SCpnt = SDpnt->device_queue; SCpnt; SCpnt = SCpnt->next)
+		if (SCpnt->state == SCSI_STATE_FAILED ||
+		    SCpnt->state == SCSI_STATE_TIMEOUT)
+			return SCpnt;
+
+	return NULL;
+}
+
+
+/*
+ * Function:	scsi_eh_test_and_retry
+ *
+ * Purpose:	Try to retry a failed command.
+ *
+ * Arguments:	SCpnt	- scsi command structure
+ *		done	- list of commands that have been successfully
+ *			  completed.
+ *
+ * Returns:	SUCCESS or FAILED
+ *
+ * Note:	If the TEST UNIT READY command successfully executes,
+ *		but returns some form of "device not ready", we wait
+ *		a while, and retry 3 times.  The device could be still
+ *		re-initialising.
+ */
+STATIC int scsi_eh_test_and_retry(Scsi_Cmnd *SCpnt, Scsi_Cmnd **done)
+{
+	int rtn, tries = 3;
+
+	do {
+		rtn = scsi_test_unit_ready(SCpnt);
+		if (rtn != SUCCESS)
+			return rtn;
+
+		if (scsi_unit_is_ready(SCpnt))
+			break;
+
+		if (tries-- == 0)
+			return FAILED;
+
+		scsi_sleep(5 * HZ);
+	} while (1);
+
+	rtn = scsi_eh_retry_command(SCpnt);
+	if (rtn == SUCCESS) {
+		SCpnt->host->host_failed--;
+		scsi_eh_finish_command(done, SCpnt);
+	}
+
+	return rtn;
+}
+
+
+/*
+ * Function:	scsi_eh_restart_device
+ *
+ * Purpose:	Retry all failed or timed out commands for a device
+ *
+ * Arguments:	SDpnt	- SCSI device to retry
+ *		done	- list of commands that have been successfully
+ *			  completed.
+ *
+ * Returns:	SUCCESS or failure code
+ */
+STATIC int scsi_eh_restart_device(Scsi_Device *SDpnt, Scsi_Cmnd **done)
+{
+	Scsi_Cmnd *SCpnt, *SCnext;
+	int rtn = SUCCESS;
+
+	for (SCpnt = SDpnt->device_queue; SCpnt; SCpnt = SCnext) {
+		SCnext = SCpnt->next;
+
+		if (SCpnt->state == SCSI_STATE_FAILED ||
+		    SCpnt->state == SCSI_STATE_TIMEOUT) {
+			rtn = scsi_eh_test_and_retry(SCpnt, done);
+			if (rtn != SUCCESS)
+				break;
+		}
+	}
+
+	return rtn;
+}
+
+/*
+ * Function:	scsi_eh_set_device_offline
+ *
+ * Purpose:	set a device off line
+ *
+ * Arguments:	SDpnt	- SCSI device to take off line
+ *		done	- list of commands that have been successfully
+ *			  completed.
+ *		reason	- text string describing why the device is off-line
+ *
+ * Returns:	Nothing
+ *
+ * Notes:	In addition, we complete each failed or timed out command
+ *		attached to this device.
+ */
+STATIC void scsi_eh_set_device_offline(Scsi_Device *SDpnt, Scsi_Cmnd **done,
+				       const char *reason)
+{
+	Scsi_Cmnd *SCpnt, *SCnext;
+
+	printk(KERN_ERR "scsi: device set offline - %s: "
+		"host %d channel %d id %d lun %d\n",
+		reason, SDpnt->host->host_no, SDpnt->channel,
+		SDpnt->id, SDpnt->lun);
+
+	SDpnt->online = FALSE;
+
+	for (SCpnt = SDpnt->device_queue; SCpnt; SCpnt = SCnext) {
+		SCnext = SCpnt->next;
+
+		switch (SCpnt->state) {
+		case SCSI_STATE_TIMEOUT:
+			SCpnt->result |= DRIVER_TIMEOUT;
+			/*FALLTHROUGH*/
+
+		case SCSI_STATE_FAILED:
+			SCSI_LOG_ERROR_RECOVERY(3,
+				printk("Finishing command for device %d %x\n",
+					SDpnt->id, SCpnt->result));
+
+			SDpnt->host->host_failed--;
+			scsi_eh_finish_command(done, SCpnt);
+			break;
+
+		default:
+			break;
+		}
+	}
+}
+
+static void scsi_unjam_request_sense(struct Scsi_Host *host, Scsi_Cmnd **done)
+{
+	int rtn;
+	int result;
+	Scsi_Cmnd *SCpnt;
+	Scsi_Device *SDpnt;
+
+	/*
+	 * Next, see if we need to request sense information.  if so,
+	 * then get it now, so we have a better idea of what to do.
+	 * FIXME(eric) this has the unfortunate side effect that if a
+	 * host adapter does not automatically request sense information,
+	 * that we end up shutting it down before we request it.  All
+	 * hosts should be doing this anyways, so for now all I have
+	 * to say is tough noogies if you end up in here.  On second
+	 * thought, this is probably a good idea.  We *really* want
+	 * to give authors an incentive to automatically request this.
+	 */
+	SCSI_LOG_ERROR_RECOVERY(3,
+		printk("scsi_unjam_host: Checking to see if we need to request sense\n"));
+
+	for (SDpnt = host->host_queue; SDpnt; SDpnt = SDpnt->next) {
+		for (SCpnt = SDpnt->device_queue; SCpnt; SCpnt = SCpnt->next) {
+			if (SCpnt->state != SCSI_STATE_FAILED || scsi_sense_valid(SCpnt))
+				continue;
+
+			SCSI_LOG_ERROR_RECOVERY(2,
+				printk("scsi_unjam_host: Requesting sense for %d\n",
+					  SCpnt->target));
+			rtn = scsi_request_sense(SCpnt);
+			if (rtn != SUCCESS)
+				continue;
+
+			SCSI_LOG_ERROR_RECOVERY(3,
+				printk("Sense requested for %p - result %x\n",
+					  SCpnt, SCpnt->result));
+			SCSI_LOG_ERROR_RECOVERY(3, print_sense("bh", SCpnt));
+
+			result = scsi_decide_disposition(SCpnt);
+
+			/*
+			 * If the result was normal, then just pass
+			 * it along to the upper level.
+			 */
+			if (result == SUCCESS) {
+				SCpnt->host->host_failed--;
+				scsi_eh_finish_command(done, SCpnt);
+			}
+			if (result != NEEDS_RETRY)
+				continue;
+
+			/* 
+			 * We only come in here if we want to retry a
+			 * command.  The test to see whether the command
+			 * should be retried should be keeping track of the
+			 * number of tries, so we don't end up looping, of
+			 * course.  
+			 */
+			SCpnt->state = NEEDS_RETRY;
+			rtn = scsi_eh_retry_command(SCpnt);
+			if (rtn != SUCCESS)
+				continue;
+
+			/*
+			 * We eventually hand this one back to the top level.
+			 */
+			SCpnt->host->host_failed--;
+			scsi_eh_finish_command(done, SCpnt);
+		}
+	}
+}
+
+static void scsi_unjam_count(struct Scsi_Host *host, Scsi_Cmnd **done)
+{
+	Scsi_Device *SDpnt;
+	Scsi_Cmnd *SCpnt;
+	int devices_failed;
+	int numfailed;
+	int timed_out;
+
+	/*
+	 * Go through the list of commands and figure out where we
+	 * stand and how bad things really are.
+	 */
+	numfailed = 0;
+	timed_out = 0;
+	devices_failed = 0;
+	for (SDpnt = host->host_queue; SDpnt; SDpnt = SDpnt->next) {
+		unsigned int device_error = 0;
+
+		for (SCpnt = SDpnt->device_queue; SCpnt; SCpnt = SCpnt->next) {
+			if (SCpnt->state == SCSI_STATE_FAILED) {
+				SCSI_LOG_ERROR_RECOVERY(5,
+					printk("Command to ID %d failed\n",
+						 SCpnt->target));
+				numfailed++;
+				device_error++;
+			}
+			if (SCpnt->state == SCSI_STATE_TIMEOUT) {
+				SCSI_LOG_ERROR_RECOVERY(5,
+					printk("Command to ID %d timedout\n",
+						 SCpnt->target));
+				timed_out++;
+				device_error++;
+			}
+		}
+		if (device_error > 0)
+			devices_failed++;
+	}
+
+	SCSI_LOG_ERROR_RECOVERY(2,
+		printk("Total of %d+%d commands on %d devices require eh work\n",
+			  numfailed, timed_out, devices_failed));
+}
+
+static void scsi_unjam_abort(struct Scsi_Host *host, Scsi_Cmnd **done)
+{
+	Scsi_Device *SDpnt;
+	Scsi_Cmnd *SCpnt;
+	int rtn;
+
+	/*
+	 * Next, try and see whether or not it makes sense to try and
+	 * abort the running command.  This only works out to be the
+	 * case if we have one command that has timed out.  If the
+	 * command simply failed, it makes no sense to try and abort
+	 * the command, since as far as the host adapter is concerned,
+	 * it isn't running.
+	 */
+
+	SCSI_LOG_ERROR_RECOVERY(3,
+		printk("scsi_unjam_host: Checking to see if we want to try abort\n"));
+
+	for (SDpnt = host->host_queue; SDpnt; SDpnt = SDpnt->next) {
+		for (SCpnt = SDpnt->device_queue; SCpnt; SCpnt = SCpnt->next) {
+			if (SCpnt->state != SCSI_STATE_TIMEOUT)
+				continue;
+
+			rtn = scsi_try_to_abort_command(SCpnt, ABORT_TIMEOUT);
+			if (rtn == SUCCESS)
+				scsi_eh_test_and_retry(SCpnt, done);
+		}
+	}
+}
+
+static void scsi_unjam_device_reset(struct Scsi_Host *host, Scsi_Cmnd **done)
+{
+	Scsi_Device *SDpnt;
+	Scsi_Cmnd *SCpnt;
+	int rtn;
+
+	/*
+	 * Either the abort wasn't appropriate, or it didn't succeed.
+	 * Now try a bus device reset.  Still, look to see whether we
+	 * have multiple devices that are jammed or not - if we have
+	 * multiple devices, it makes no sense to try BUS_DEVICE_RESET
+	 * - we really would need to try a BUS_RESET instead.
+	 *
+	 * Does this make sense - should we try BDR on each device
+	 * individually?  Yes, definitely.
+	 */
+	SCSI_LOG_ERROR_RECOVERY(3,
+		printk("scsi_unjam_host: Checking to see if we want to try BDR\n"));
+
+	for (SDpnt = host->host_queue; SDpnt; SDpnt = SDpnt->next) {
+		SCpnt = scsi_eh_find_failed_command(SDpnt);
+		if (SCpnt == NULL)
+			continue;
+
+		/*
+		 * OK, we have a device that is having problems.
+		 * Try and send a bus device reset to it.
+		 */
+		rtn = scsi_try_bus_device_reset(SCpnt, RESET_TIMEOUT);
+
+		/*
+		 * A successful bus device reset causes all commands
+		 * currently executing on the device to terminate.
+		 * We expect the HBA driver to "forget" all commands
+		 * associated with this device.
+		 *
+		 * Retry each failed or timed out command currently
+		 * outstanding for this device.
+		 *
+		 * If any command fails, bail out.  We will try a
+		 * bus reset instead.
+		 */
+		if (rtn == SUCCESS)
+			scsi_eh_restart_device(SDpnt, done);
+	}
+}
+
+static void scsi_unjam_bus_reset(struct Scsi_Host *host, Scsi_Cmnd **done)
+{
+	Scsi_Device *SDpnt;
+	Scsi_Cmnd *SCpnt;
+	int rtn, channel, max_channel = 0;
+
+	/*
+	 * If we ended up here, we have serious problems.  The only thing
+	 * left to try is a full bus reset.  If someone has grabbed the
+	 * bus and isn't letting go, then perhaps this will help.
+	 */
+	SCSI_LOG_ERROR_RECOVERY(3,
+		printk("scsi_unjam_host: Try hard bus reset\n"));
+
+	/*
+	 * Find the maximum channel number for this host.
+	 */
+	for (SDpnt = host->host_queue; SDpnt; SDpnt = SDpnt->next)
+		if (SDpnt->channel > max_channel)
+			max_channel = SDpnt->channel;
+
+	/*
+	 * Loop over each channel, and see if it any device on
+	 * each channel has failed.
+	 */
+	for (channel = 0; channel <= max_channel; channel++) {
+		Scsi_Cmnd *failed_command;
+		int soft_reset;
+
+ try_again:
+ 		failed_command = NULL;
+ 		soft_reset = 0;
+
+		/*
+		 * Loop over each device on this channel locating any
+		 * failed command.  We need a Scsi_Cmnd structure to
+		 * call the bus reset function.
+		 *
+		 * We also need to check if any of the failed commands
+		 * are on soft_reset devices, and if so, skip the reset.  
+		 */
+		for (SDpnt = host->host_queue; SDpnt; SDpnt = SDpnt->next) {
+			if (SDpnt->channel != channel)
+				continue;
+
+			SCpnt = scsi_eh_find_failed_command(SDpnt);
+			if (SCpnt)
+				failed_command = SCpnt;
+
+			/*
+			 * If this device has timed out or failed commands,
+			 * and uses the soft_reset option.
+			 */
+			if (SCpnt && SDpnt->soft_reset)
+				soft_reset = 1;
+		}
+
+		/*
+		 * If this channel hasn't failed, we
+		 * don't need to reset it.
+		 */
+		if (!failed_command)
+			continue;
+
+		/* 
+		 * If this device uses the soft reset option, and this
+		 * is one of the devices acting up, then our only
+		 * option is to wait a bit, since the command is
+		 * supposedly still running.  
+		 *
+		 * FIXME(eric) - right now we will just end up falling
+		 * through to the 'take device offline' case.
+		 *
+		 * FIXME(eric) - It is possible that the command completed
+		 * *after* the error recovery procedure started, and if
+		 * this is the case, we are worrying about nothing here.
+		 *
+		 * FIXME(rmk) - This should be bounded; we shouldn't wait
+		 * for an infinite amount of time for any device.
+		 */
+		if (soft_reset) {
+			SCSI_LOG_ERROR_RECOVERY(3,
+				printk("scsi_unjam_host: unable to try bus "
+					"reset for host %d channel %d\n",
+					host->host_no, channel));
+			scsi_sleep(1 * HZ);
+			goto try_again;
+		}
+
+		/*
+		 * We now know that we are able to perform a reset for the
+		 * bus that SCpnt points to.  There are no soft-reset devices
+		 * with outstanding timed out commands.
+		 */
+		rtn = scsi_try_bus_reset(failed_command);
+
+		/*
+		 * If we failed to reset the bus, move on to the next bus.
+		 */
+		if (rtn != SUCCESS)
+			continue;
+
+		/*
+		 * We succeeded.  Retry each failed command.
+		 */
+		for (SDpnt = host->host_queue; SDpnt; SDpnt = SDpnt->next) {
+			if (SDpnt->channel != channel)
+				continue;
+
+			rtn = scsi_eh_restart_device(SDpnt, done);
+
+			if (rtn != SUCCESS) {
+				SCpnt = scsi_eh_find_failed_command(SDpnt);
+
+				/*
+				 * This device failed again.  Since a bus
+				 * reset freed it up, chances are we've
+				 * hit the same problem, so try the same
+				 * solution.  We also need to ensure that
+				 * the SCSI bus is in the BUS FREE state
+				 * so we can try to talk to other devices.
+				 */
+				scsi_try_bus_reset(SCpnt);
+				scsi_eh_set_device_offline(SDpnt, done,
+					"not ready or command retry "
+					"failed after bus reset");
+			}
+		}
+	}
+}
+
+static void scsi_unjam_host_reset(struct Scsi_Host *host, Scsi_Cmnd **done)
+{
+	Scsi_Device *SDpnt;
+	Scsi_Cmnd *SCpnt;
+	Scsi_Cmnd *failed_command = NULL;
+	int rtn, soft_reset;
+
+	/*
+	 * If we ended up here, we have serious problems.  The only thing
+	 * left to try is a full host reset - perhaps the firmware on the
+	 * device crashed, or something like that.
+	 *
+	 * It is assumed that a succesful host reset will cause *all*
+	 * information about the command to be flushed from both the host
+	 * adapter *and* the device.
+	 *
+	 * FIXME(eric) - it isn't clear that devices that implement the
+	 * soft reset option can ever be cleared except via cycling the
+	 * power.  The problem is that sending the host reset command will
+	 * cause the host to forget about the pending command, but the
+	 * device won't forget.  For now, we skip the host reset option
+	 * if any of the failed devices are configured to use the soft
+	 * reset option.
+	 */
+	SCSI_LOG_ERROR_RECOVERY(3,
+		printk("scsi_unjam_host: Try host reset\n"));
+
+ try_again:
+	failed_command = NULL;
+	soft_reset = 0;
+
+	for (SDpnt = host->host_queue; SDpnt; SDpnt = SDpnt->next) {
+		/*
+		 * Locate any failed commands for this device.
+		 */
+		SCpnt = scsi_eh_find_failed_command(SDpnt);
+		if (SCpnt)
+			failed_command = SCpnt;
+
+		/*
+		 * If this device has timed out or failed commands,
+		 * and uses the soft_reset option.
+		 */
+		if (SCpnt && SDpnt->soft_reset)
+			soft_reset = 1;
+	}
+
+	/* 
+	 * If this device uses the soft reset option, and this
+	 * is one of the devices acting up, then our only
+	 * option is to wait a bit, since the command is
+	 * supposedly still running.  
+	 *
+	 * FIXME(eric) - right now we will just end up falling
+	 * through to the 'take device offline' case.
+	 *
+	 * FIXME(rmk) - This should be bounded; we shouldn't wait
+	 * for an infinite amount of time for any device.
+	 */
+	if (soft_reset) {
+		SCSI_LOG_ERROR_RECOVERY(3,
+			printk("scsi_unjam_host: unable to try "
+				"hard host reset\n"));
+
+			/*
+			 * Due to the spinlock, we will never get out of this
+			 * loop without a proper wait. (DB)
+			 */
+			scsi_sleep(1 * HZ);
+
+			goto try_again;
+	}
+
+	SCSI_LOG_ERROR_RECOVERY(3,
+		printk("scsi_unjam_host: Try hard host reset\n"));
+
+	/*
+	 * FIXME(eric) - we need to obtain a valid SCpnt to perform this call.
+	 */
+	rtn = scsi_try_host_reset(failed_command);
+	if (rtn == SUCCESS) {
+		/*
+		 * FIXME(eric) we assume that all commands are flushed from
+		 * the controller.  We should get a DID_RESET for all of the
+		 * commands that were pending.  We should ignore these so
+		 * that we can guarantee that we are in a consistent state.
+		 *
+		 * I believe this to be the case right now, but this needs
+		 * to be tested.
+		 */
+		for (SDpnt = host->host_queue; SDpnt; SDpnt = SDpnt->next) {
+			rtn = scsi_eh_restart_device(SDpnt, done);
+
+			if (rtn != SUCCESS) {
+				SCpnt = scsi_eh_find_failed_command(SDpnt);
+
+				/*
+				 * This device failed again.  Since a host
+				 * reset freed it up, chances are we've
+				 * hit the same problem, so try the same
+				 * solution.  We also need to ensure that
+				 * the SCSI bus is in the BUS FREE state
+				 * so we can try to talk to other devices.
+				 */
+				scsi_try_host_reset(SCpnt);
+				scsi_eh_set_device_offline(SDpnt, done,
+					"not ready or command retry "
+					"failed after host reset");
+			}
+		}
+	}
+}
+
+static void scsi_unjam_failure(struct Scsi_Host *host, Scsi_Cmnd **done)
+{
+	Scsi_Device *SDpnt;
+
+	/*
+	 * If the HOST RESET failed, then for now we assume that the
+	 * entire host adapter is too hosed to be of any use.  For our
+	 * purposes, however, it is easier to simply take the devices
+	 * offline that correspond to commands that failed.
+	 */
+	SCSI_LOG_ERROR_RECOVERY(1,
+		printk("scsi_unjam_host: Take device offline\n"));
+
+	for (SDpnt = host->host_queue; SDpnt; SDpnt = SDpnt->next)
+		scsi_eh_set_device_offline(SDpnt, done,
+			"command error recover failed");
+
+	if (host->host_failed != 0)
+		panic("scsi_unjam_host: Miscount of number of failed commands.\n");
+
+	SCSI_LOG_ERROR_RECOVERY(3, printk("scsi_unjam_host: Returning\n"));
+}
+
+static void (*unjam_method[])(struct Scsi_Host *, Scsi_Cmnd **) = {
+	scsi_unjam_request_sense,
+	scsi_unjam_count,
+	scsi_unjam_abort,
+	scsi_unjam_device_reset,
+	scsi_unjam_bus_reset,
+	scsi_unjam_host_reset,
+	scsi_unjam_failure,
+};
 
 /*
  * Function:  scsi_unjam_host
@@ -1290,21 +1998,13 @@ STATIC void scsi_restart_operations(struct Scsi_Host *host)
  */
 STATIC int scsi_unjam_host(struct Scsi_Host *host)
 {
-	int devices_failed;
-	int numfailed;
-	int ourrtn;
-	int rtn = FALSE;
-	int result;
-	Scsi_Cmnd *SCloop;
+	Scsi_Cmnd *SCdone = NULL;
 	Scsi_Cmnd *SCpnt;
 	Scsi_Device *SDpnt;
-	Scsi_Device *SDloop;
-	Scsi_Cmnd *SCdone;
-	int timed_out;
+	int ourrtn = FALSE;
+	int i;
 
 	ASSERT_LOCK(&io_request_lock, 0);
-
-	SCdone = NULL;
 
 	/*
 	 * First, protect against any sort of race condition.  If any of the outstanding
@@ -1349,431 +2049,18 @@ STATIC int scsi_unjam_host(struct Scsi_Host *host)
 		}
 	}
 
-	/*
-	 * Next, see if we need to request sense information.  if so,
-	 * then get it now, so we have a better idea of what to do.
-	 * FIXME(eric) this has the unfortunate side effect that if a host
-	 * adapter does not automatically request sense information, that we end
-	 * up shutting it down before we request it.  All hosts should be doing this
-	 * anyways, so for now all I have to say is tough noogies if you end up in here.
-	 * On second thought, this is probably a good idea.  We *really* want to give
-	 * authors an incentive to automatically request this.
-	 */
-	SCSI_LOG_ERROR_RECOVERY(3, printk("scsi_unjam_host: Checking to see if we need to request sense\n"));
+	for (i = 0; i < ARRAY_SIZE(unjam_method); i++) {
+		unjam_method[i](host, &SCdone);
 
-	for (SDpnt = host->host_queue; SDpnt; SDpnt = SDpnt->next) {
-		for (SCpnt = SDpnt->device_queue; SCpnt; SCpnt = SCpnt->next) {
-			if (SCpnt->state != SCSI_STATE_FAILED || scsi_sense_valid(SCpnt)) {
-				continue;
-			}
-			SCSI_LOG_ERROR_RECOVERY(2, printk("scsi_unjam_host: Requesting sense for %d\n",
-							  SCpnt->target));
-			rtn = scsi_request_sense(SCpnt);
-			if (rtn != SUCCESS) {
-				continue;
-			}
-			SCSI_LOG_ERROR_RECOVERY(3, printk("Sense requested for %p - result %x\n",
-						  SCpnt, SCpnt->result));
-			SCSI_LOG_ERROR_RECOVERY(3, print_sense("bh", SCpnt));
-
-			result = scsi_decide_disposition(SCpnt);
-
-			/*
-			 * If the result was normal, then just pass it along to the
-			 * upper level.
-			 */
-			if (result == SUCCESS) {
-				SCpnt->host->host_failed--;
-				scsi_eh_finish_command(&SCdone, SCpnt);
-			}
-			if (result != NEEDS_RETRY) {
-				continue;
-			}
-			/* 
-			 * We only come in here if we want to retry a
-			 * command.  The test to see whether the command
-			 * should be retried should be keeping track of the
-			 * number of tries, so we don't end up looping, of
-			 * course.  
-			 */
-			SCpnt->state = NEEDS_RETRY;
-			rtn = scsi_eh_retry_command(SCpnt);
-			if (rtn != SUCCESS) {
-				continue;
-			}
-			/*
-			 * We eventually hand this one back to the top level.
-			 */
-			SCpnt->host->host_failed--;
-			scsi_eh_finish_command(&SCdone, SCpnt);
-		}
-	}
-
-	/*
-	 * Go through the list of commands and figure out where we stand and how bad things
-	 * really are.
-	 */
-	numfailed = 0;
-	timed_out = 0;
-	devices_failed = 0;
-	for (SDpnt = host->host_queue; SDpnt; SDpnt = SDpnt->next) {
-		unsigned int device_error = 0;
-
-		for (SCpnt = SDpnt->device_queue; SCpnt; SCpnt = SCpnt->next) {
-			if (SCpnt->state == SCSI_STATE_FAILED) {
-				SCSI_LOG_ERROR_RECOVERY(5, printk("Command to ID %d failed\n",
-							 SCpnt->target));
-				numfailed++;
-				device_error++;
-			}
-			if (SCpnt->state == SCSI_STATE_TIMEOUT) {
-				SCSI_LOG_ERROR_RECOVERY(5, printk("Command to ID %d timedout\n",
-							 SCpnt->target));
-				timed_out++;
-				device_error++;
-			}
-		}
-		if (device_error > 0) {
-			devices_failed++;
-		}
-	}
-
-	SCSI_LOG_ERROR_RECOVERY(2, printk("Total of %d+%d commands on %d devices require eh work\n",
-				  numfailed, timed_out, devices_failed));
-
-	if (host->host_failed == 0) {
-		ourrtn = TRUE;
-		goto leave;
-	}
-	/*
-	 * Next, try and see whether or not it makes sense to try and abort
-	 * the running command.  This only works out to be the case if we have
-	 * one command that has timed out.  If the command simply failed, it
-	 * makes no sense to try and abort the command, since as far as the
-	 * host adapter is concerned, it isn't running.
-	 */
-
-	SCSI_LOG_ERROR_RECOVERY(3, printk("scsi_unjam_host: Checking to see if we want to try abort\n"));
-
-	for (SDpnt = host->host_queue; SDpnt; SDpnt = SDpnt->next) {
-		for (SCloop = SDpnt->device_queue; SCloop; SCloop = SCloop->next) {
-			if (SCloop->state != SCSI_STATE_TIMEOUT) {
-				continue;
-			}
-			rtn = scsi_try_to_abort_command(SCloop, ABORT_TIMEOUT);
-			if (rtn == SUCCESS) {
-				rtn = scsi_test_unit_ready(SCloop);
-
-				if (rtn == SUCCESS && scsi_unit_is_ready(SCloop)) {
-					rtn = scsi_eh_retry_command(SCloop);
-
-					if (rtn == SUCCESS) {
-						SCloop->host->host_failed--;
-						scsi_eh_finish_command(&SCdone, SCloop);
-					}
-				}
-			}
-		}
-	}
-
-	/*
-	 * If we have corrected all of the problems, then we are done.
-	 */
-	if (host->host_failed == 0) {
-		ourrtn = TRUE;
-		goto leave;
-	}
-	/*
-	 * Either the abort wasn't appropriate, or it didn't succeed.
-	 * Now try a bus device reset.  Still, look to see whether we have
-	 * multiple devices that are jammed or not - if we have multiple devices,
-	 * it makes no sense to try BUS_DEVICE_RESET - we really would need
-	 * to try a BUS_RESET instead.
-	 *
-	 * Does this make sense - should we try BDR on each device individually?
-	 * Yes, definitely.
-	 */
-	SCSI_LOG_ERROR_RECOVERY(3, printk("scsi_unjam_host: Checking to see if we want to try BDR\n"));
-
-	for (SDpnt = host->host_queue; SDpnt; SDpnt = SDpnt->next) {
-		for (SCloop = SDpnt->device_queue; SCloop; SCloop = SCloop->next) {
-			if (SCloop->state == SCSI_STATE_FAILED
-			    || SCloop->state == SCSI_STATE_TIMEOUT) {
-				break;
-			}
-		}
-
-		if (SCloop == NULL) {
-			continue;
-		}
 		/*
-		 * OK, we have a device that is having problems.  Try and send
-		 * a bus device reset to it.
-		 *
-		 * FIXME(eric) - make sure we handle the case where multiple
-		 * commands to the same device have failed. They all must
-		 * get properly restarted.
+		 * If we solved all of the problems, then
+		 * let's rev up the engines again.
 		 */
-		rtn = scsi_try_bus_device_reset(SCloop, RESET_TIMEOUT);
-
-		if (rtn == SUCCESS) {
-			rtn = scsi_test_unit_ready(SCloop);
-
-			if (rtn == SUCCESS && scsi_unit_is_ready(SCloop)) {
-				rtn = scsi_eh_retry_command(SCloop);
-
-				if (rtn == SUCCESS) {
-					SCloop->host->host_failed--;
-					scsi_eh_finish_command(&SCdone, SCloop);
-				}
-			}
+		if (host->host_failed == 0) {
+			ourrtn = TRUE;
+			break;
 		}
 	}
-
-	if (host->host_failed == 0) {
-		ourrtn = TRUE;
-		goto leave;
-	}
-	/*
-	 * If we ended up here, we have serious problems.  The only thing left
-	 * to try is a full bus reset.  If someone has grabbed the bus and isn't
-	 * letting go, then perhaps this will help.
-	 */
-	SCSI_LOG_ERROR_RECOVERY(3, printk("scsi_unjam_host: Try hard bus reset\n"));
-
-	/* 
-	 * We really want to loop over the various channels, and do this on
-	 * a channel by channel basis.  We should also check to see if any
-	 * of the failed commands are on soft_reset devices, and if so, skip
-	 * the reset.  
-	 */
-	for (SDpnt = host->host_queue; SDpnt; SDpnt = SDpnt->next) {
-	      next_device:
-		for (SCpnt = SDpnt->device_queue; SCpnt; SCpnt = SCpnt->next) {
-			if (SCpnt->state != SCSI_STATE_FAILED
-			    && SCpnt->state != SCSI_STATE_TIMEOUT) {
-				continue;
-			}
-			/*
-			 * We have a failed command.  Make sure there are no other failed
-			 * commands on the same channel that are timed out and implement a
-			 * soft reset.
-			 */
-			for (SDloop = host->host_queue; SDloop; SDloop = SDloop->next) {
-				for (SCloop = SDloop->device_queue; SCloop; SCloop = SCloop->next) {
-					if (SCloop->channel != SCpnt->channel) {
-						continue;
-					}
-					if (SCloop->state != SCSI_STATE_FAILED
-					    && SCloop->state != SCSI_STATE_TIMEOUT) {
-						continue;
-					}
-					if (SDloop->soft_reset && SCloop->state == SCSI_STATE_TIMEOUT) {
-						/* 
-						 * If this device uses the soft reset option, and this
-						 * is one of the devices acting up, then our only
-						 * option is to wait a bit, since the command is
-						 * supposedly still running.  
-						 *
-						 * FIXME(eric) - right now we will just end up falling
-						 * through to the 'take device offline' case.
-						 *
-						 * FIXME(eric) - It is possible that the command completed
-						 * *after* the error recovery procedure started, and if this
-						 * is the case, we are worrying about nothing here.
-						 */
-
-						scsi_sleep(1 * HZ);
-						goto next_device;
-					}
-				}
-			}
-
-			/*
-			 * We now know that we are able to perform a reset for the
-			 * bus that SCpnt points to.  There are no soft-reset devices
-			 * with outstanding timed out commands.
-			 */
-			rtn = scsi_try_bus_reset(SCpnt);
-			if (rtn == SUCCESS) {
-				for (SDloop = host->host_queue; SDloop; SDloop = SDloop->next) {
-					for (SCloop = SDloop->device_queue; SCloop; SCloop = SCloop->next) {
-						if (SCloop->channel != SCpnt->channel) {
-							continue;
-						}
-						if (SCloop->state != SCSI_STATE_FAILED
-						    && SCloop->state != SCSI_STATE_TIMEOUT) {
-							continue;
-						}
-						rtn = scsi_test_unit_ready(SCloop);
-
-						if (rtn == SUCCESS && scsi_unit_is_ready(SCloop)) {
-							rtn = scsi_eh_retry_command(SCloop);
-
-							if (rtn == SUCCESS) {
-								SCpnt->host->host_failed--;
-								scsi_eh_finish_command(&SCdone, SCloop);
-							}
-						}
-						/*
-						 * If the bus reset worked, but we are still unable to
-						 * talk to the device, take it offline.
-						 * FIXME(eric) - is this really the correct thing to do?
-						 */
-						if (rtn != SUCCESS) {
-							printk(KERN_INFO "scsi: device set offline - not ready or command retry failed after bus reset: host %d channel %d id %d lun %d\n", SDloop->host->host_no, SDloop->channel, SDloop->id, SDloop->lun);
-
-							SDloop->online = FALSE;
-							SDloop->host->host_failed--;
-							scsi_eh_finish_command(&SCdone, SCloop);
-						}
-					}
-				}
-			}
-		}
-	}
-
-	if (host->host_failed == 0) {
-		ourrtn = TRUE;
-		goto leave;
-	}
-	/*
-	 * If we ended up here, we have serious problems.  The only thing left
-	 * to try is a full host reset - perhaps the firmware on the device
-	 * crashed, or something like that.
-	 *
-	 * It is assumed that a succesful host reset will cause *all* information
-	 * about the command to be flushed from both the host adapter *and* the
-	 * device.
-	 *
-	 * FIXME(eric) - it isn't clear that devices that implement the soft reset
-	 * option can ever be cleared except via cycling the power.  The problem is
-	 * that sending the host reset command will cause the host to forget
-	 * about the pending command, but the device won't forget.  For now, we
-	 * skip the host reset option if any of the failed devices are configured
-	 * to use the soft reset option.
-	 */
-	for (SDpnt = host->host_queue; SDpnt; SDpnt = SDpnt->next) {
-	      next_device2:
-		for (SCpnt = SDpnt->device_queue; SCpnt; SCpnt = SCpnt->next) {
-			if (SCpnt->state != SCSI_STATE_FAILED
-			    && SCpnt->state != SCSI_STATE_TIMEOUT) {
-				continue;
-			}
-			if (SDpnt->soft_reset && SCpnt->state == SCSI_STATE_TIMEOUT) {
-				/* 
-				 * If this device uses the soft reset option, and this
-				 * is one of the devices acting up, then our only
-				 * option is to wait a bit, since the command is
-				 * supposedly still running.  
-				 *
-				 * FIXME(eric) - right now we will just end up falling
-				 * through to the 'take device offline' case.
-				 */
-				SCSI_LOG_ERROR_RECOVERY(3,
-							printk("scsi_unjam_host: Unable to try hard host reset\n"));
-
-				/*
-				 * Due to the spinlock, we will never get out of this
-				 * loop without a proper wait. (DB)
-				 */
-				scsi_sleep(1 * HZ);
-
-				goto next_device2;
-			}
-			SCSI_LOG_ERROR_RECOVERY(3, printk("scsi_unjam_host: Try hard host reset\n"));
-
-			/*
-			 * FIXME(eric) - we need to obtain a valid SCpnt to perform this call.
-			 */
-			rtn = scsi_try_host_reset(SCpnt);
-			if (rtn == SUCCESS) {
-				/*
-				 * FIXME(eric) we assume that all commands are flushed from the
-				 * controller.  We should get a DID_RESET for all of the commands
-				 * that were pending.  We should ignore these so that we can
-				 * guarantee that we are in a consistent state.
-				 *
-				 * I believe this to be the case right now, but this needs to be
-				 * tested.
-				 */
-				for (SDloop = host->host_queue; SDloop; SDloop = SDloop->next) {
-					for (SCloop = SDloop->device_queue; SCloop; SCloop = SCloop->next) {
-						if (SCloop->state != SCSI_STATE_FAILED
-						    && SCloop->state != SCSI_STATE_TIMEOUT) {
-							continue;
-						}
-						rtn = scsi_test_unit_ready(SCloop);
-
-						if (rtn == SUCCESS && scsi_unit_is_ready(SCloop)) {
-							rtn = scsi_eh_retry_command(SCloop);
-
-							if (rtn == SUCCESS) {
-								SCpnt->host->host_failed--;
-								scsi_eh_finish_command(&SCdone, SCloop);
-							}
-						}
-						if (rtn != SUCCESS) {
-							printk(KERN_INFO "scsi: device set offline - not ready or command retry failed after host reset: host %d channel %d id %d lun %d\n", SDloop->host->host_no, SDloop->channel, SDloop->id, SDloop->lun);
-							SDloop->online = FALSE;
-							SDloop->host->host_failed--;
-							scsi_eh_finish_command(&SCdone, SCloop);
-						}
-					}
-				}
-			}
-		}
-	}
-
-	/*
-	 * If we solved all of the problems, then let's rev up the engines again.
-	 */
-	if (host->host_failed == 0) {
-		ourrtn = TRUE;
-		goto leave;
-	}
-	/*
-	 * If the HOST RESET failed, then for now we assume that the entire host
-	 * adapter is too hosed to be of any use.  For our purposes, however, it is
-	 * easier to simply take the devices offline that correspond to commands
-	 * that failed.
-	 */
-	SCSI_LOG_ERROR_RECOVERY(1, printk("scsi_unjam_host: Take device offline\n"));
-
-	for (SDpnt = host->host_queue; SDpnt; SDpnt = SDpnt->next) {
-		for (SCloop = SDpnt->device_queue; SCloop; SCloop = SCloop->next) {
-			if (SCloop->state == SCSI_STATE_FAILED || SCloop->state == SCSI_STATE_TIMEOUT) {
-				SDloop = SCloop->device;
-				if (SDloop->online == TRUE) {
-					printk(KERN_INFO "scsi: device set offline - command error recover failed: host %d channel %d id %d lun %d\n", SDloop->host->host_no, SDloop->channel, SDloop->id, SDloop->lun);
-					SDloop->online = FALSE;
-				}
-
-				/*
-				 * This should pass the failure up to the top level driver, and
-				 * it will have to try and do something intelligent with it.
-				 */
-				SCloop->host->host_failed--;
-
-				if (SCloop->state == SCSI_STATE_TIMEOUT) {
-					SCloop->result |= (DRIVER_TIMEOUT << 24);
-				}
-				SCSI_LOG_ERROR_RECOVERY(3, printk("Finishing command for device %d %x\n",
-				    SDloop->id, SCloop->result));
-
-				scsi_eh_finish_command(&SCdone, SCloop);
-			}
-		}
-	}
-
-	if (host->host_failed != 0) {
-		panic("scsi_unjam_host: Miscount of number of failed commands.\n");
-	}
-	SCSI_LOG_ERROR_RECOVERY(3, printk("scsi_unjam_host: Returning\n"));
-
-	ourrtn = FALSE;
-
-      leave:
 
 	/*
 	 * We should have a list of commands that we 'finished' during the course of
@@ -2013,3 +2300,17 @@ scsi_new_reset(Scsi_Cmnd *SCpnt, int flag)
  * tab-width: 8
  * End:
  */
+
+EXPORT_SYMBOL(scsi_eh_times_out);
+EXPORT_SYMBOL(scsi_eh_retry_command);
+EXPORT_SYMBOL(scsi_request_sense);
+EXPORT_SYMBOL(scsi_test_unit_ready);
+EXPORT_SYMBOL(scsi_unit_is_ready);
+EXPORT_SYMBOL(scsi_eh_finish_command);
+EXPORT_SYMBOL(scsi_try_to_abort_command);
+EXPORT_SYMBOL(scsi_try_bus_device_reset);
+EXPORT_SYMBOL(scsi_try_bus_reset);
+EXPORT_SYMBOL(scsi_try_host_reset);
+EXPORT_SYMBOL(scsi_sense_valid);
+EXPORT_SYMBOL(scsi_done);
+EXPORT_SYMBOL(scsi_decide_disposition);

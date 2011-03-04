@@ -1,5 +1,5 @@
 /*
- *  linux/include/asm-arm/arch-rpc/system.h
+ *  linux/include/asm-arm/arch-riscstation/system.h
  *
  *  Copyright (C) 1996-1999 Russell King.
  *
@@ -18,7 +18,7 @@ static void arch_idle(void)
 
 static inline void arch_reset(char mode)
 {
-	iomd_writeb(0, IOMD_ROMCR0);
+	iomd_writeb(0x40, IOMD_ROMCR0);
 
 	/*
 	 * Jump into the ROM

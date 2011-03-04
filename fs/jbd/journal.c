@@ -35,6 +35,7 @@
 #include <linux/mm.h>
 #include <asm/uaccess.h>
 #include <linux/proc_fs.h>
+#include <linux/config.h>
 
 EXPORT_SYMBOL(journal_start);
 EXPORT_SYMBOL(journal_try_start);
@@ -1814,14 +1815,17 @@ struct journal_head *journal_add_journal_head(struct buffer_head *bh)
 			 */
 			spin_lock(&jh_splice_lock);
 			set_bit(BH_JBD, &bh->b_state);
-			bh->b_private = jh;
-			jh->b_bh = bh;
+			WRITE_FIX(bh->b_private, jh);
+			WRITE_FIX(jh->b_bh, bh);
 			atomic_inc(&bh->b_count);
 			spin_unlock(&jh_splice_lock);
 			BUFFER_TRACE(bh, "added journal_head");
 		}
 	}
-	jh->b_jcount++;
+	{
+		typeof(jh->b_jcount) _tmp = jh->b_jcount + 1;
+		WRITE_FIX(jh->b_jcount, _tmp);
+	}
 	spin_unlock(&journal_datalist_lock);
 	return bh->b_private;
 }
@@ -1872,7 +1876,10 @@ void journal_unlock_journal_head(struct journal_head *jh)
 {
 	spin_lock(&journal_datalist_lock);
 	J_ASSERT_JH(jh, jh->b_jcount > 0);
-	--jh->b_jcount;
+	{
+		typeof(jh->b_jcount) _tmp = jh->b_jcount - 1;
+		WRITE_FIX(jh->b_jcount, _tmp);
+	}
 	if (!jh->b_jcount && !jh->b_transaction) {
 		struct buffer_head *bh;
 		bh = jh2bh(jh);

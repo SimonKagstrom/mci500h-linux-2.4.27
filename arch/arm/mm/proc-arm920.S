@@ -71,12 +71,16 @@
  */
 	.align	5
 ENTRY(cpu_arm920_data_abort)
-	mrc	p15, 0, r3, c5, c0, 0		@ get FSR
+	mrc	p15, 0, r1, c5, c0, 0		@ get FSR
 	mrc	p15, 0, r0, c6, c0, 0		@ get FAR
-	ldr	r1, [r2]			@ read aborted instruction
-	and	r3, r3, #255
-	tst	r1, r1, lsr #21			@ C = bit 20
-	sbc	r1, r1, r1			@ r1 = C - 1
+
+	tst	r3, #PSR_T_BIT
+	ldrneh	r3, [r2]			@ read aborted thumb instruction
+	ldreq	r3, [r2]			@ read aborted ARM instruction
+	bic	r1, r1, #1 << 11 | 1 << 10	@ clear bits 11 and 10 of FSR
+	movne	r3, r3, lsl #(21 - 12)		@ move thumb bit 11 to ARM bit 20
+	tst	r3, #1 << 20			@ check write
+	orreq	r1, r1, #1 << 11
 	mov	pc, lr
 	
 /*
@@ -186,10 +190,9 @@ cpu_arm920_cache_clean_invalidate_all_r2:
 		.align	5
 ENTRY(cpu_arm920_cache_clean_invalidate_range)
 	bic	r0, r0, #DCACHELINESIZE - 1	@ && added by PGM
-	bic	r1, r1, #DCACHELINESIZE - 1     @ && added by DHM
 	sub	r3, r1, r0
 	cmp	r3, #MAX_AREA_SIZE
-	bgt	cpu_arm920_cache_clean_invalidate_all_r2
+	bhi	cpu_arm920_cache_clean_invalidate_all_r2
 1:	teq	r2, #0
 #ifdef CONFIG_CPU_DCACHE_WRITETHROUGH
 	mcr	p15, 0, r0, c7, c6, 1		@ invalidate D entry
@@ -207,7 +210,7 @@ ENTRY(cpu_arm920_cache_clean_invalidate_range)
 	add	r0, r0, #DCACHELINESIZE
 #endif
 	cmp	r0, r1
-	blt	1b
+	blo	1b
 
 	mcr	p15, 0, r1, c7, c10, 4		@ drain WB
 	mov	pc, lr
@@ -253,18 +256,17 @@ ENTRY(cpu_arm920_flush_ram_page)
  */
 	.align	5
 ENTRY(cpu_arm920_dcache_invalidate_range)
-#ifndef CONFIG_CPU_ARM920_WRITETHROUGH
+#ifndef CONFIG_CPU_DCACHE_WRITETHROUGH
 	tst	r0, #DCACHELINESIZE - 1
 	mcrne	p15, 0, r0, c7, c10, 1		@ clean D entry
 	tst	r1, #DCACHELINESIZE - 1
 	mcrne	p15, 0, r1, c7, c10, 1		@ clean D entry
 #endif		@ clean D entry
 	bic	r0, r0, #DCACHELINESIZE - 1
-	bic	r1, r1, #DCACHELINESIZE - 1
 1:	mcr	p15, 0, r0, c7, c6, 1		@ invalidate D entry
 	add	r0, r0, #DCACHELINESIZE
 	cmp	r0, r1
-	blt	1b
+	blo	1b
 	mov	pc, lr
 
 /*
@@ -279,20 +281,17 @@ ENTRY(cpu_arm920_dcache_invalidate_range)
  */
 	.align	5
 ENTRY(cpu_arm920_dcache_clean_range)
-#ifndef CONFIG_CPU_ARM920_WRITETHROUGH
+#ifndef CONFIG_CPU_DCACHE_WRITETHROUGH
 	bic	r0, r0, #DCACHELINESIZE - 1
 	sub	r1, r1, r0
 	cmp	r1, #MAX_AREA_SIZE
 	mov	r2, #0
-	bgt	cpu_arm920_cache_clean_invalidate_all_r2
-
-	bic	r1, r1, #DCACHELINESIZE -1
-	add	r1, r1, #DCACHELINESIZE
+	bhi	cpu_arm920_cache_clean_invalidate_all_r2
 
 1:	mcr	p15, 0, r0, c7, c10, 1		@ clean D entry
 	add	r0, r0, #DCACHELINESIZE
 	subs	r1, r1, #DCACHELINESIZE
-	bpl	1b
+	bcs	1b
 #endif
 	mcr	p15, 0, r2, c7, c10, 4		@ drain WB
 	mov	pc, lr
@@ -312,7 +311,7 @@ ENTRY(cpu_arm920_dcache_clean_range)
  */
 	.align	5
 ENTRY(cpu_arm920_dcache_clean_page)
-#ifndef CONFIG_CPU_ARM920_WRITETHROUGH
+#ifndef CONFIG_CPU_DCACHE_WRITETHROUGH
 	mov	r1, #PAGESIZE
 1:	mcr	p15, 0, r0, c7, c10, 1		@ clean D entry
 	add	r0, r0, #DCACHELINESIZE
@@ -333,7 +332,7 @@ ENTRY(cpu_arm920_dcache_clean_page)
  */
 	.align	5
 ENTRY(cpu_arm920_dcache_clean_entry)
-#ifndef CONFIG_CPU_ARM920_WRITETHROUGH
+#ifndef CONFIG_CPU_DCACHE_WRITETHROUGH
 	mcr	p15, 0, r0, c7, c10, 1		@ clean D entry
 #endif
 	mcr	p15, 0, r0, c7, c10, 4		@ drain WB
@@ -365,16 +364,13 @@ ENTRY(cpu_arm920_icache_invalidate_range)
 	bic	r0, r0, #ICACHELINESIZE - 1	@ Safety check
 	sub	r1, r1, r0
 	cmp	r1, #MAX_AREA_SIZE
-	bgt	cpu_arm920_cache_clean_invalidate_all_r2
-
-	bic	r1, r1, #ICACHELINESIZE - 1
-	add	r1, r1, #ICACHELINESIZE
+	bhi	cpu_arm920_cache_clean_invalidate_all_r2
 
 1:	mcr	p15, 0, r0, c7, c5, 1		@ Clean I entry
 	mcr	p15, 0, r0, c7, c10, 1		@ Clean D entry
 	add	r0, r0, #ICACHELINESIZE
 	subs	r1, r1, #ICACHELINESIZE
-	bne	1b
+	bcs	1b
 
 	mov	r0, #0
 	mcr	p15, 0, r0, c7, c10, 4		@ drain WB
@@ -418,13 +414,12 @@ ENTRY(cpu_arm920_tlb_invalidate_range)
 	mov	r3, #PAGESIZE
 	sub	r3, r3, #1
 	bic 	r0, r0, r3
-	bic	r1, r1, r3
 
 1:	mcr	p15, 0, r0, c8, c6, 1		@ invalidate D TLB entry
 	mcr	p15, 0, r0, c8, c5, 1		@ invalidate I TLB entry
 	add	r0, r0, #PAGESIZE
 	cmp	r0, r1
-	blt	1b
+	blo	1b
 	mov	pc, lr
 
 /*
@@ -457,7 +452,6 @@ ENTRY(cpu_arm920_tlb_invalidate_page)
 ENTRY(cpu_arm920_set_pgd)
 	mov	ip, #0
 #ifdef CONFIG_CPU_DCACHE_WRITETHROUGH
-	/* Any reason why we don't use mcr p15, 0, r0, c7, c7, 0 here? --rmk */
 	mcr	p15, 0, ip, c7, c6, 0		@ invalidate D cache
 #else
 @ && 'Clean & Invalidate whole DCache'
@@ -514,7 +508,7 @@ ENTRY(cpu_arm920_set_pte)
 	bic	r2, r2, #3
 	orr	r2, r2, #HPTE_TYPE_SMALL
 
-	tst	r1, #LPTE_USER | LPTE_EXEC	@ User or Exec?
+	tst	r1, #LPTE_USER			@ User?
 	orrne	r2, r2, #HPTE_AP_READ
 
 	tst	r1, #LPTE_WRITE | LPTE_DIRTY	@ Write and Dirty?

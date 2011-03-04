@@ -27,10 +27,19 @@ if [ "$CONFIG_BLK_DEV_IDE" != "n" ]; then
 
    comment 'IDE chipset support/bugfixes'
    if [ "$CONFIG_BLK_DEV_IDE" != "n" ]; then
-      dep_bool '  CMD640 chipset bugfix/support' CONFIG_BLK_DEV_CMD640 $CONFIG_X86
-      dep_bool '    CMD640 enhanced support' CONFIG_BLK_DEV_CMD640_ENHANCED $CONFIG_BLK_DEV_CMD640
+
+      if [ "$CONFIG_ARCH_PNX0106" = "y" ]; then
+         dep_bool '  PNX0106 simple (PIO only) IDE interface support' CONFIG_BLK_DEV_IDE_PNX0106_SIMPLE $CONFIG_ARCH_PNX0106
+         if [ "$CONFIG_BLK_DEV_IDE_PNX0106_SIMPLE" = "n" ]; then
+            dep_bool '  PNX0106 full DMA capable IDE interface support' CONFIG_BLK_DEV_IDE_PNX0106_FULL $CONFIG_ARCH_PNX0106
+            define_bool CONFIG_BLK_DEV_IDEDMA $CONFIG_BLK_DEV_IDE_PNX0106_FULL
+         fi
+      fi
+
       dep_bool '  ISA-PNP EIDE support' CONFIG_BLK_DEV_ISAPNP $CONFIG_ISAPNP
       if [ "$CONFIG_PCI" = "y" ]; then
+         dep_bool '  CMD640 chipset bugfix/support' CONFIG_BLK_DEV_CMD640 $CONFIG_X86
+         dep_bool '    CMD640 enhanced support' CONFIG_BLK_DEV_CMD640_ENHANCED $CONFIG_BLK_DEV_CMD640
 	 bool '  PCI IDE chipset support' CONFIG_BLK_DEV_IDEPCI
 	 if [ "$CONFIG_BLK_DEV_IDEPCI" = "y" ]; then
 	    dep_bool '    Generic PCI IDE Chipset Support' CONFIG_BLK_DEV_GENERIC $CONFIG_BLK_DEV_IDEPCI
@@ -106,6 +115,9 @@ if [ "$CONFIG_BLK_DEV_IDE" != "n" ]; then
 	 dep_bool '        Use ICS DMA by default' CONFIG_IDEDMA_ICS_AUTO $CONFIG_BLK_DEV_IDEDMA_ICS
 	 define_bool CONFIG_BLK_DEV_IDEDMA $CONFIG_BLK_DEV_IDEDMA_ICS
 	 dep_bool '    RapIDE interface support' CONFIG_BLK_DEV_IDE_RAPIDE $CONFIG_ARCH_ACORN
+      fi
+      if [ "$CONFIG_ARCH_RISCSTATION" = "y" ]; then
+         dep_bool '    RiscStation IDE' CONFIG_BLK_DEV_IDE_RISCSTATION $CONFIG_ARCH_RISCSTATION
       fi
       if [ "$CONFIG_AMIGA" = "y" ]; then
 	 dep_bool '  Amiga Gayle IDE interface support' CONFIG_BLK_DEV_GAYLE $CONFIG_AMIGA
@@ -188,10 +200,12 @@ fi
 ##  dep_mbool CONFIG_BLK_DEV_NTF_DISK $CONFIG_BLK_DEV_IDEDISK
 ##fi
 
+if [ "$CONFIG_PCI" = "y" ]; then
 dep_tristate 'Support for IDE Raid controllers (EXPERIMENTAL)' CONFIG_BLK_DEV_ATARAID $CONFIG_BLK_DEV_IDE $CONFIG_EXPERIMENTAL
 dep_tristate '   Support Promise software RAID (Fasttrak(tm)) (EXPERIMENTAL)' CONFIG_BLK_DEV_ATARAID_PDC $CONFIG_BLK_DEV_IDE $CONFIG_EXPERIMENTAL $CONFIG_BLK_DEV_ATARAID
 dep_tristate '   Highpoint 370 software RAID (EXPERIMENTAL)' CONFIG_BLK_DEV_ATARAID_HPT $CONFIG_BLK_DEV_IDE $CONFIG_EXPERIMENTAL $CONFIG_BLK_DEV_ATARAID
 dep_tristate '   CMD/Silicon Image Medley Software RAID (EXPERIMENTAL)' CONFIG_BLK_DEV_ATARAID_MEDLEY $CONFIG_BLK_DEV_IDE $CONFIG_EXPERIMENTAL $CONFIG_BLK_DEV_ATARAID
 dep_tristate '   Silicon Image Medley software RAID (EXPERIMENTAL)' CONFIG_BLK_DEV_ATARAID_SII $CONFIG_BLK_DEV_IDE $CONFIG_EXPERIMENTAL $CONFIG_BLK_DEV_ATARAID
+fi
 
 endmenu

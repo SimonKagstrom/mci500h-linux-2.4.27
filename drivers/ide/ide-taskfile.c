@@ -595,7 +595,11 @@ ide_startstop_t task_in_intr (ide_drive_t *drive)
 	u8 stat;
 	unsigned long flags;
 
+#ifdef CONFIG_SSA_HAS7752
+	if (!OK_STAT(stat = hwif->INB(IDE_STATUS_REG),DRIVE_READY,BAD_R_STAT)) {
+#else
 	if (!OK_STAT(stat = hwif->INB(IDE_STATUS_REG),DATA_READY,BAD_R_STAT)) {
+#endif
 		if (stat & (ERR_STAT|DRQ_STAT)) {
 #if 0
 			DTF("%s: attempting to recover last " \

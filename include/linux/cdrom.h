@@ -346,6 +346,12 @@ struct cdrom_generic_command
 #define CD_FRAMESIZE_RAW1 (CD_FRAMESIZE_RAW-CD_SYNC_SIZE) /*2340*/
 #define CD_FRAMESIZE_RAW0 (CD_FRAMESIZE_RAW-CD_SYNC_SIZE-CD_HEAD_SIZE) /*2336*/
 
+
+//lcc
+#define CD_FRAMESIZE_SubQ (CD_FRAMESIZE_RAW +16) /*2368*/
+#define CD_FRAMESIZE_SubPW (CD_FRAMESIZE_RAW +96) /*2448*/
+
+
 #define CD_XA_HEAD        (CD_HEAD_SIZE+CD_SUBHEAD_SIZE) /* "before data" part of raw XA frame */
 #define CD_XA_TAIL        (CD_EDC_SIZE+CD_ECC_SIZE) /* "after data" part of raw XA frame */
 #define CD_XA_SYNC_HEAD   (CD_SYNC_SIZE+CD_XA_HEAD) /* sync bytes + header of XA frame */

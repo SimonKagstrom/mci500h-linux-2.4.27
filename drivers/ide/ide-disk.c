@@ -366,7 +366,12 @@ ide_startstop_t __ide_do_rw_disk (ide_drive_t *drive, struct request *rq, unsign
 	task_ioreg_t command	= WIN_NOP;
 	ata_nsector_t		nsectors;
 
+#ifdef CONFIG_SSA_HAS7752_FOO
+	#error "this shouldn't be needed anymore..."
+	nsectors.all		= rq->nr_sectors > 4 ? 4 : (u16) rq->nr_sectors;
+#else
 	nsectors.all		= (u16) rq->nr_sectors;
+#endif
 
 	if (driver_blocked)
 		panic("Request while ide driver is blocked?");

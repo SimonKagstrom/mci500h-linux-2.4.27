@@ -2,18 +2,25 @@
  * ich2rom.c
  *
  * Normal mappings of chips in physical memory
- * $Id: ich2rom.c,v 1.2 2002/10/18 22:45:48 eric Exp $
+ * $Id: ich2rom.c,v 1.8 2003/10/23 23:10:59 thayne Exp $
  */
 
 #include <linux/module.h>
 #include <linux/types.h>
 #include <linux/kernel.h>
+#include <linux/init.h>
 #include <asm/io.h>
 #include <linux/mtd/mtd.h>
 #include <linux/mtd/map.h>
 #include <linux/config.h>
 #include <linux/pci.h>
 #include <linux/pci_ids.h>
+
+#define xstr(s) str(s)
+#define str(s) #s
+#define MOD_NAME xstr(KBUILD_BASENAME)
+
+#define MTD_DEV_NAME_LENGTH 16
 
 #define RESERVE_MEM_REGION 0
 
@@ -29,6 +36,10 @@ struct ich2rom_map_info {
 	struct map_info map;
 	struct mtd_info *mtd;
 	unsigned long window_addr;
+	struct pci_dev *pdev;
+	struct resource window_rsrc;
+	struct resource rom_rsrc;
+	char mtd_name[MTD_DEV_NAME_LENGTH];
 };
 
 static inline unsigned long addr(struct map_info *map, unsigned long ofs)
@@ -90,25 +101,25 @@ static void ich2rom_copy_to(struct map_info *map, unsigned long to, const void *
 }
 
 static struct ich2rom_map_info ich2rom_map = {
-	map: {
-		name: "ICH2 rom",
-		size: 0,
-		buswidth: 1,
-		read8: ich2rom_read8,
-		read16: ich2rom_read16,
-		read32: ich2rom_read32,
-		copy_from: ich2rom_copy_from,
-		write8: ich2rom_write8,
-		write16: ich2rom_write16,
-		write32: ich2rom_write32,
-		copy_to: ich2rom_copy_to,
+	.map = {
+		.name = MOD_NAME,
+		.phys = NO_XIP,
+		.size = 0,
+		.buswidth = 1,
+		.read8 = ich2rom_read8,
+		.read16 = ich2rom_read16,
+		.read32 = ich2rom_read32,
+		.copy_from = ich2rom_copy_from,
+		.write8 = ich2rom_write8,
+		.write16 = ich2rom_write16,
+		.write32 = ich2rom_write32,
+		.copy_to = ich2rom_copy_to,
 		/* Firmware hubs only use vpp when being programmed
-		 * in a factory setting.  So in place programming
+		 * in a factory setting.  So in-place programming
 		 * needs to use a different method.
 		 */
 	},
-	mtd: 0,
-	window_addr: 0,
+	/* remaining fields of structure are initialized to 0 */
 };
 
 enum fwh_lock_state {
@@ -116,6 +127,32 @@ enum fwh_lock_state {
 	FWH_IMMUTABLE  = 2,
 	FWH_DENY_READ  = 4,
 };
+
+static void ich2rom_cleanup(struct ich2rom_map_info *info)
+{
+	u16 word;
+
+	/* Disable writes through the rom window */
+	pci_read_config_word(info->pdev, BIOS_CNTL, &word);
+	pci_write_config_word(info->pdev, BIOS_CNTL, word & ~1);
+
+	if (info->mtd) {
+		del_mtd_device(info->mtd);
+		map_destroy(info->mtd);
+		info->mtd = NULL;
+		info->map.virt = 0;
+	}
+	if (info->rom_rsrc.parent)
+		release_resource(&info->rom_rsrc);
+	if (info->window_rsrc.parent)
+		release_resource(&info->window_rsrc);
+
+	if (info->window_addr) {
+		iounmap((void *)(info->window_addr));
+		info->window_addr = 0;
+	}
+}
+
 
 static int ich2rom_set_lock_state(struct mtd_info *mtd, loff_t ofs, size_t len,
 	enum fwh_lock_state state)
@@ -165,15 +202,24 @@ static int __devinit ich2rom_init_one (struct pci_dev *pdev,
 	 * but don't currently handle that case either.
 	 */
 
-#if RESERVE_MEM_REGION
-	/* Some boards have this reserved and I haven't found a good work
-	 * around to say I know what I'm doing!
+	info->pdev = pdev;
+
+	/*
+	 * Try to reserve the window mem region.  If this fails then
+	 * it is likely due to the window being "reseved" by the BIOS.
 	 */
-	if (!request_mem_region(ICH2_FWH_REGION_START, ICH2_FWH_REGION_SIZE, "ich2rom")) {
-		printk(KERN_ERR "ich2rom: cannot reserve rom window\n");
-		goto err_out_none;
+	info->window_rsrc.name = MOD_NAME;
+	info->window_rsrc.start = ICH2_FWH_REGION_START;
+	info->window_rsrc.end = ICH2_FWH_REGION_START + ICH2_FWH_REGION_SIZE - 1;
+	info->window_rsrc.flags = IORESOURCE_MEM | IORESOURCE_BUSY;
+	if (request_resource(&iomem_resource, &info->window_rsrc)) {
+		info->window_rsrc.parent = NULL;
+		printk(KERN_ERR MOD_NAME
+		       " %s(): Unable to register resource"
+		       " 0x%.08lx-0x%.08lx - kernel bug?\n",
+		       __func__,
+		       info->window_rsrc.start, info->window_rsrc.end);
 	}
-#endif /* RESERVE_MEM_REGION */
 	
 	/* Enable writes through the rom window */
 	pci_read_config_word(pdev, BIOS_CNTL, &word);
@@ -181,22 +227,22 @@ static int __devinit ich2rom_init_one (struct pci_dev *pdev,
 		/* The BIOS will generate an error if I enable
 		 * this device, so don't even try.
 		 */
-		printk(KERN_ERR "ich2rom: firmware access control, I can't enable writes\n");
-		goto err_out_none;
+		printk(KERN_ERR MOD_NAME ": firmware access control, I can't enable writes\n");
+		goto failed;
 	}
 	pci_write_config_word(pdev, BIOS_CNTL, word | 1);
 
 
 	/* Map the firmware hub into my address space. */
-	/* Does this use to much virtual address space? */
+	/* Does this use too much virtual address space? */
 	info->window_addr = (unsigned long)ioremap(
 		ICH2_FWH_REGION_START, ICH2_FWH_REGION_SIZE);
 	if (!info->window_addr) {
 		printk(KERN_ERR "Failed to ioremap\n");
-		goto err_out_free_mmio_region;
+		goto failed;
 	}
 
-	/* For now assume the firmware has setup all relavent firmware
+	/* For now assume the firmware has setup all relevant firmware
 	 * windows.  We don't have enough information to handle this case
 	 * intelligently.
 	 */
@@ -204,7 +250,7 @@ static int __devinit ich2rom_init_one (struct pci_dev *pdev,
 	/* FIXME select the firmware hub and enable a window to it. */
 
 	info->mtd = 0;
-	info->map.map_priv_1 = 	info->window_addr;
+	info->map.map_priv_1 = info->window_addr;
 
 	map_size = ICH2_FWH_REGION_SIZE;
 	while(!info->mtd && (map_size > 0)) {
@@ -213,7 +259,7 @@ static int __devinit ich2rom_init_one (struct pci_dev *pdev,
 		map_size -= 512*1024;
 	}
 	if (!info->mtd) {
-		goto err_out_iounmap;
+		goto failed;
 	}
 	/* I know I can only be a firmware hub here so put
 	 * in the special lock and unlock routines.
@@ -221,17 +267,35 @@ static int __devinit ich2rom_init_one (struct pci_dev *pdev,
 	info->mtd->lock = ich2rom_lock;
 	info->mtd->unlock = ich2rom_unlock;
 		
-	info->mtd->module = THIS_MODULE;
+	info->mtd->owner = THIS_MODULE;
 	add_mtd_device(info->mtd);
+
+	if (info->window_rsrc.parent) {
+		/*
+		 * Registering the MTD device in iomem may not be possible
+		 * if there is a BIOS "reserved" and BUSY range.  If this
+		 * fails then continue anyway.
+		 */
+		snprintf(info->mtd_name, MTD_DEV_NAME_LENGTH,
+			 "mtd%d", info->mtd->index);
+
+		info->rom_rsrc.name = info->mtd_name;
+		info->rom_rsrc.start = ICH2_FWH_REGION_START
+			+ ICH2_FWH_REGION_SIZE - map_size;
+		info->rom_rsrc.end = ICH2_FWH_REGION_START
+			+ ICH2_FWH_REGION_SIZE;
+		info->rom_rsrc.flags = IORESOURCE_MEM | IORESOURCE_BUSY;
+		if (request_resource(&info->window_rsrc, &info->rom_rsrc)) {
+			printk(KERN_ERR MOD_NAME
+			       ": cannot reserve MTD resource\n");
+			info->rom_rsrc.parent = NULL;
+		}
+	}
+
 	return 0;
 
-err_out_iounmap:
-	iounmap((void *)(info->window_addr));
-err_out_free_mmio_region:
-#if RESERVE_MEM_REGION
-	release_mem_region(ICH2_FWH_REGION_START, ICH2_FWH_REGION_SIZE);
-#endif
-err_out_none:
+ failed:
+	ich2rom_cleanup(info);
 	return -ENODEV;
 }
 
@@ -263,6 +327,8 @@ static struct pci_device_id ich2rom_pci_tbl[] __devinitdata = {
 	  PCI_ANY_ID, PCI_ANY_ID, },
 	{ PCI_VENDOR_ID_INTEL, PCI_DEVICE_ID_INTEL_82801CA_0, 
 	  PCI_ANY_ID, PCI_ANY_ID, },
+	{ PCI_VENDOR_ID_INTEL, PCI_DEVICE_ID_INTEL_82801DB_0, 
+	  PCI_ANY_ID, PCI_ANY_ID, },
 	{ 0, },
 };
 
@@ -270,10 +336,10 @@ MODULE_DEVICE_TABLE(pci, ich2rom_pci_tbl);
 
 #if 0
 static struct pci_driver ich2rom_driver = {
-	name:	  "ich2rom",
-	id_table: ich2rom_pci_tbl,
-	probe:    ich2rom_init_one,
-	remove:   ich2rom_remove_one,
+	.name =		MOD_NAME,
+	.id_table =	ich2rom_pci_tbl,
+	.probe =	ich2rom_init_one,
+	.remove =	ich2rom_remove_one,
 };
 #endif
 

@@ -218,23 +218,14 @@ static void setup_driver_defaults (ide_drive_t *drive);
 static void init_hwif_data (unsigned int index)
 {
 	unsigned int unit;
-	hw_regs_t hw;
 	ide_hwif_t *hwif = &ide_hwifs[index];
 
 	/* bulk initialize hwif & drive info with zeros */
 	memset(hwif, 0, sizeof(ide_hwif_t));
-	memset(&hw, 0, sizeof(hw_regs_t));
 
 	/* fill in any non-zero initial values */
 	hwif->index     = index;
-	ide_init_hwif_ports(&hw, ide_default_io_base(index), 0, &hwif->irq);
-	memcpy(&hwif->hw, &hw, sizeof(hw));
-	memcpy(hwif->io_ports, hw.io_ports, sizeof(hw.io_ports));
-	hwif->noprobe	= !hwif->io_ports[IDE_DATA_OFFSET];
-#ifdef CONFIG_BLK_DEV_HD
-	if (hwif->io_ports[IDE_DATA_OFFSET] == HD_DATA)
-		hwif->noprobe = 1; /* may be overridden by ide_setup() */
-#endif /* CONFIG_BLK_DEV_HD */
+	hwif->noprobe	= 1;
 	hwif->major	= ide_hwif_to_major[index];
 	hwif->name[0]	= 'i';
 	hwif->name[1]	= 'd';
@@ -276,6 +267,28 @@ static void init_hwif_data (unsigned int index)
 }
 
 /*
+ * Old compatability function - initialise ports using ide_default_io_base
+ */
+static void ide_old_init_default_hwifs(void)
+{
+	unsigned int index;
+	ide_ioreg_t base;
+	ide_hwif_t *hwif;
+
+	for (index = 0; index < MAX_HWIFS; index++) {
+		hwif = &ide_hwifs[index];
+
+		base = ide_default_io_base(index);
+
+		if (base) {
+			ide_init_hwif_ports(&hwif->hw, base, 0, &hwif->hw.irq);
+			memcpy(hwif->io_ports, hwif->hw.io_ports, sizeof(hwif->hw.io_ports));
+			hwif->noprobe = 0;
+		}
+	}
+}
+
+/*
  * init_ide_data() sets reasonable default values into all fields
  * of all instances of the hwifs and drives, but only on the first call.
  * Subsequent calls have no effect (they don't wipe out anything).
@@ -307,6 +320,7 @@ static void __init init_ide_data (void)
 		init_hwif_data(index);
 
 	/* Add default hw interfaces */
+	ide_old_init_default_hwifs();
 	ide_init_default_hwifs();
 
 	idebus_parameter = 0;
@@ -2530,6 +2544,12 @@ static void __init probe_for_hwifs (void)
 		rapide_init();
 	}
 #endif /* CONFIG_BLK_DEV_IDE_RAPIDE */
+#ifdef CONFIG_BLK_DEV_IDE_RISCSTATION
+	{
+	    extern void rside_init(void);
+	    rside_init();
+	}
+#endif /* CONFIG_BLK_DEV_IDE_RISCSTATION */
 #ifdef CONFIG_BLK_DEV_GAYLE
 	{
 		extern void gayle_init(void);

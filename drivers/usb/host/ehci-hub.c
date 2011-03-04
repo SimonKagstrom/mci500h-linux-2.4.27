@@ -40,6 +40,13 @@ static int check_reset_complete (
 
 	/* if reset finished and it's still not enabled -- handoff */
 	if (!(port_status & PORT_PE)) {
+		/* with integrated TT, there's nobody to hand it to! */
+		if (ehci_is_ARC(ehci)) {
+			ehci_dbg (ehci,
+		        "Failed to enable port %d on root hub TT\n",
+		        index+1);
+			return port_status;
+		}
 		ehci_dbg (ehci, "port %d full speed --> companion\n",
 			index + 1);
 
@@ -189,9 +196,11 @@ static int ehci_hub_control (
 			/* ? */
 			break;
 		case USB_PORT_FEAT_POWER:
-			if (HCS_PPC (ehci->hcs_params))
-				writel (temp & ~PORT_POWER,
+			if (HCS_PPC (ehci->hcs_params)) {
+				writel ((temp & ~PORT_POWER) | PORT_PHCD | PORT_WKOC_E | PORT_WKDISC_E | PORT_WKCONN_E ,
 					&ehci->regs->port_status [wIndex]);
+			}
+			
 			break;
 		case USB_PORT_FEAT_C_CONNECTION:
 			writel (temp | PORT_CSC,
@@ -226,8 +235,9 @@ static int ehci_hub_control (
 		temp = readl (&ehci->regs->port_status [wIndex]);
 
 		// wPortChange bits
-		if (temp & PORT_CSC)
+		if (temp & PORT_CSC) 
 			status |= 1 << USB_PORT_FEAT_C_CONNECTION;
+	
 		if (temp & PORT_PEC)
 			status |= 1 << USB_PORT_FEAT_C_ENABLE;
 		// USB_PORT_FEAT_C_SUSPEND
@@ -257,8 +267,9 @@ static int ehci_hub_control (
 		if (!(temp & PORT_OWNER)) {
 			if (temp & PORT_CONNECT) {
 				status |= 1 << USB_PORT_FEAT_CONNECTION;
-				status |= 1 << USB_PORT_FEAT_HIGHSPEED;
+				status |= ehci_port_speed(ehci, temp);
 			}
+
 			if (temp & PORT_PE)
 				status |= 1 << USB_PORT_FEAT_ENABLE;
 			if (temp & PORT_SUSPEND)
@@ -301,14 +312,16 @@ static int ehci_hub_control (
 			writel (temp | PORT_SUSPEND,
 				&ehci->regs->port_status [wIndex]);
 			break;
-		case USB_PORT_FEAT_POWER:
-			if (HCS_PPC (ehci->hcs_params))
-				writel (temp | PORT_POWER,
+		case USB_PORT_FEAT_POWER: 
+			if (HCS_PPC (ehci->hcs_params))  {
+				writel (temp | PORT_POWER | PORT_WKOC_E | PORT_WKDISC_E | PORT_WKCONN_E,
 					&ehci->regs->port_status [wIndex]);
+			}
 			break;
 		case USB_PORT_FEAT_RESET:
 			/* line status bits may report this as low speed */
 			if ((temp & (PORT_PE|PORT_CONNECT)) == PORT_CONNECT
+					&& !ehci_is_ARC(ehci)
 					&& PORT_USB11 (temp)) {
 				ehci_dbg (ehci,
 					"port %d low speed --> companion\n",

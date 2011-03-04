@@ -25,14 +25,35 @@ comment 'Ethernet (10 or 100Mbit)'
 bool 'Ethernet (10 or 100Mbit)' CONFIG_NET_ETHERNET
 if [ "$CONFIG_NET_ETHERNET" = "y" ]; then
    if [ "$CONFIG_ARM" = "y" ]; then  
+
       dep_bool '  ARM EBSA110 AM79C961A support' CONFIG_ARM_AM79C961A $CONFIG_ARCH_EBSA110
+
       tristate '  Cirrus Logic CS8900A support' CONFIG_ARM_CIRRUS
+      tristate '  Old CS89x0 driver' CONFIG_CS89x0
+
       if [ "$CONFIG_ARCH_ACORN" = "y" ]; then
          source drivers/acorn/net/Config.in
       fi
+
+      if [ "$CONFIG_ARCH_AT91RM9200" = "y" ]; then
+         tristate '  AT91RM9200 Ethernet support' CONFIG_AT91_ETHER
+         if [ "$CONFIG_AT91_ETHER" = "y" -o "$CONFIG_AT91_ETHER" = "m" ]; then
+            bool '      RMII interface?   ' CONFIG_AT91_ETHER_RMII
+         fi
+      fi
+
+      if [ "$CONFIG_ARCH_SSA" = "y" -o \
+           "$CONFIG_ARCH_PNX0106" = "y" ]
+      then
+        tristate '  Onboard ASIX (NE2000) Ethernet support' CONFIG_NE2K_ASIX
+        if [ "$CONFIG_NE2K_ASIX" != "n" ]; then
+          bool '    Support AX88796 Rev B devices (instead of Rev A)' CONFIG_NE2K_ASIX_REVB
+        fi
+      fi
+
    fi
    if [ "$CONFIG_ARCH_CAMELOT" = "y" ]; then
-	tristate ' Altera Ether00 support' CONFIG_ETHER00
+	tristate '  Altera Ether00 support' CONFIG_ETHER00
    fi
    if [ "$CONFIG_PPC" = "y" ]; then
       dep_tristate '  MACE (Power Mac ethernet) support' CONFIG_MACE $CONFIG_ALL_PPC
@@ -377,6 +398,8 @@ if [ "$CONFIG_EXPERIMENTAL" = "y" ]; then
    dep_tristate 'Red Creek Hardware VPN (EXPERIMENTAL)' CONFIG_RCPCI $CONFIG_PCI
    tristate 'Traffic Shaper (EXPERIMENTAL)' CONFIG_SHAPER
 fi
+
+source drivers/net/wlan-ng-zd1201/Config.in
 
 source drivers/net/wan/Config.in
 

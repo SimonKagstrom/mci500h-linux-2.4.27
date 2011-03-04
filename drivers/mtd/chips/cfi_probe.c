@@ -1,13 +1,14 @@
 /* 
    Common Flash Interface probe code.
    (C) 2000 Red Hat. GPL'd.
-   $Id: cfi_probe.c,v 1.69 2002/05/11 22:13:03 dwmw2 Exp $
+   $Id: cfi_probe.c,v 1.72 2003/07/22 13:23:38 stuart Exp $
 */
 
 #include <linux/config.h>
 #include <linux/module.h>
 #include <linux/types.h>
 #include <linux/kernel.h>
+#include <linux/init.h>
 #include <asm/io.h>
 #include <asm/byteorder.h>
 #include <linux/errno.h>
@@ -17,8 +18,6 @@
 #include <linux/mtd/map.h>
 #include <linux/mtd/cfi.h>
 #include <linux/mtd/gen_probe.h>
-
-//#define DEBUG_CFI 
 
 #ifdef DEBUG_CFI
 static void print_cfi_ident(struct cfi_ident *);
@@ -179,8 +178,27 @@ static int cfi_chip_setup(struct map_info *map,
 		       (cfi->cfiq->EraseRegionInfo[i] & 0xffff) + 1);
 #endif
 	}
+
+	/* Note we put the device back into Read Mode BEFORE going into Auto
+	 * Select Mode, as some devices support nesting of modes, others
+	 * don't. This way should always work.
+	 * On cmdset 0001 the writes of 0xaa and 0x55 are not needed, and
+	 * so should be treated as nops or illegal (and so put the device
+	 * back into Read Mode, which is a nop in this case).
+	 */
+	cfi_send_gen_cmd(0xf0,     0, base, map, cfi, cfi->device_type, NULL);
+	cfi_send_gen_cmd(0xaa, 0x555, base, map, cfi, cfi->device_type, NULL);
+	cfi_send_gen_cmd(0x55, 0x2aa, base, map, cfi, cfi->device_type, NULL);
+	cfi_send_gen_cmd(0x90, 0x555, base, map, cfi, cfi->device_type, NULL);
+	cfi->mfr = cfi_read_query(map, base);
+	cfi->id = cfi_read_query(map, base + ofs_factor);    
+
 	/* Put it back into Read Mode */
 	cfi_send_gen_cmd(0xF0, 0, base, map, cfi, cfi->device_type, NULL);
+
+	printk(KERN_INFO "%s: Found %d x%d devices at 0x%x in %d-bit mode\n",
+	       map->name, cfi->interleave, cfi->device_type*8, base,
+	       map->buswidth*8);
 
 	return 1;
 }
@@ -240,11 +258,11 @@ static void print_cfi_ident(struct cfi_ident *cfip)
 		printk("No Alternate Algorithm Table\n");
 		
 		
-	printk("Vcc Minimum: %x.%x V\n", cfip->VccMin >> 4, cfip->VccMin & 0xf);
-	printk("Vcc Maximum: %x.%x V\n", cfip->VccMax >> 4, cfip->VccMax & 0xf);
+	printk("Vcc Minimum: %2d.%d V\n", cfip->VccMin >> 4, cfip->VccMin & 0xf);
+	printk("Vcc Maximum: %2d.%d V\n", cfip->VccMax >> 4, cfip->VccMax & 0xf);
 	if (cfip->VppMin) {
-		printk("Vpp Minimum: %x.%x V\n", cfip->VppMin >> 4, cfip->VppMin & 0xf);
-		printk("Vpp Maximum: %x.%x V\n", cfip->VppMax >> 4, cfip->VppMax & 0xf);
+		printk("Vpp Minimum: %2d.%d V\n", cfip->VppMin >> 4, cfip->VppMin & 0xf);
+		printk("Vpp Maximum: %2d.%d V\n", cfip->VppMax >> 4, cfip->VppMax & 0xf);
 	}
 	else
 		printk("No Vpp line\n");
@@ -303,8 +321,8 @@ static void print_cfi_ident(struct cfi_ident *cfip)
 #endif /* DEBUG_CFI */
 
 static struct chip_probe cfi_chip_probe = {
-	name: "CFI",
-	probe_chip: cfi_probe_chip
+	.name		= "CFI",
+	.probe_chip	= cfi_probe_chip
 };
 
 struct mtd_info *cfi_probe(struct map_info *map)
@@ -317,9 +335,9 @@ struct mtd_info *cfi_probe(struct map_info *map)
 }
 
 static struct mtd_chip_driver cfi_chipdrv = {
-	probe: cfi_probe,
-	name: "cfi_probe",
-	module: THIS_MODULE
+	.probe		= cfi_probe,
+	.name		= "cfi_probe",
+	.module		= THIS_MODULE
 };
 
 int __init cfi_probe_init(void)

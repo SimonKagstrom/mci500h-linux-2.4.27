@@ -1,5 +1,5 @@
 /*
- * $Id: mtdcore.c,v 1.34 2003/01/24 23:32:25 dwmw2 Exp $
+ * $Id: mtdcore.c,v 1.39 2003/05/21 15:15:03 dwmw2 Exp $
  *
  * Core registration and callback routines for MTD
  * drivers and users.
@@ -17,6 +17,7 @@
 #include <linux/major.h>
 #include <linux/fs.h>
 #include <linux/ioctl.h>
+#include <linux/init.h>
 #include <linux/mtd/compatmac.h>
 #ifdef CONFIG_PROC_FS
 #include <linux/proc_fs.h>
@@ -24,9 +25,15 @@
 
 #include <linux/mtd/mtd.h>
 
-static DECLARE_MUTEX(mtd_table_mutex);
-static struct mtd_info *mtd_table[MAX_MTD_DEVICES];
-static struct mtd_notifier *mtd_notifiers = NULL;
+/* These are exported solely for the purpose of mtd_blkdevs.c. You 
+   should not use them for _anything_ else */
+DECLARE_MUTEX(mtd_table_mutex);
+struct mtd_info *mtd_table[MAX_MTD_DEVICES];
+
+EXPORT_SYMBOL_GPL(mtd_table_mutex);
+EXPORT_SYMBOL_GPL(mtd_table);
+
+static LIST_HEAD(mtd_notifiers);
 
 /**
  *	add_mtd_device - register an MTD device
@@ -44,21 +51,28 @@ int add_mtd_device(struct mtd_info *mtd)
 
 	down(&mtd_table_mutex);
 
-	for (i=0; i< MAX_MTD_DEVICES; i++)
-		if (!mtd_table[i])
-		{
-			struct mtd_notifier *not=mtd_notifiers;
+	for (i=0; i < MAX_MTD_DEVICES; i++)
+		if (!mtd_table[i]) {
+			struct list_head *this;
 
 			mtd_table[i] = mtd;
 			mtd->index = i;
+			mtd->usecount = 0;
+
 			DEBUG(0, "mtd: Giving out device %d to %s\n",i, mtd->name);
-			while (not)
-			{
-				(*(not->add))(mtd);
-				not = not->next;
+			/* No need to get a refcount on the module containing
+			   the notifier, since we hold the mtd_table_mutex */
+			list_for_each(this, &mtd_notifiers) {
+				struct mtd_notifier *not = list_entry(this, struct mtd_notifier, list);
+				not->add(mtd);
 			}
+			
 			up(&mtd_table_mutex);
-			MOD_INC_USE_COUNT;
+			/* We _know_ we aren't being removed, because
+			   our caller is still holding us here. So none
+			   of this try_ nonsense, and no bitching about it
+			   either. :) */
+			__module_get(THIS_MODULE);
 			return 0;
 		}
 	
@@ -78,29 +92,34 @@ int add_mtd_device(struct mtd_info *mtd)
 
 int del_mtd_device (struct mtd_info *mtd)
 {
-	struct mtd_notifier *not=mtd_notifiers;
-	int i;
+	int ret;
 	
 	down(&mtd_table_mutex);
 
-	for (i=0; i < MAX_MTD_DEVICES; i++)
-	{
-		if (mtd_table[i] == mtd)
-		{
-			while (not)
-			{
-				(*(not->remove))(mtd);
-				not = not->next;
-			}
-			mtd_table[i] = NULL;
-			up (&mtd_table_mutex);
-			MOD_DEC_USE_COUNT;
-			return 0;
+	if (mtd_table[mtd->index] != mtd) {
+		ret = -ENODEV;
+	} else if (mtd->usecount) {
+		printk(KERN_NOTICE "Removing MTD device #%d (%s) with use count %d\n", 
+		       mtd->index, mtd->name, mtd->usecount);
+		ret = -EBUSY;
+	} else {
+		struct list_head *this;
+
+		/* No need to get a refcount on the module containing
+		   the notifier, since we hold the mtd_table_mutex */
+		list_for_each(this, &mtd_notifiers) {
+			struct mtd_notifier *not = list_entry(this, struct mtd_notifier, list);
+			not->remove(mtd);
 		}
+
+		mtd_table[mtd->index] = NULL;
+
+		module_put(THIS_MODULE);
+		ret = 0;
 	}
 
 	up(&mtd_table_mutex);
-	return 1;
+	return ret;
 }
 
 /**
@@ -118,10 +137,9 @@ void register_mtd_user (struct mtd_notifier *new)
 
 	down(&mtd_table_mutex);
 
-	new->next = mtd_notifiers;
-	mtd_notifiers = new;
+	list_add(&new->list, &mtd_notifiers);
 
- 	MOD_INC_USE_COUNT;
+ 	__module_get(THIS_MODULE);
 	
 	for (i=0; i< MAX_MTD_DEVICES; i++)
 		if (mtd_table[i])
@@ -142,34 +160,24 @@ void register_mtd_user (struct mtd_notifier *new)
 
 int unregister_mtd_user (struct mtd_notifier *old)
 {
-	struct mtd_notifier **prev = &mtd_notifiers;
-	struct mtd_notifier *cur;
 	int i;
 
 	down(&mtd_table_mutex);
 
-	while ((cur = *prev)) {
-		if (cur == old) {
-			*prev = cur->next;
+	module_put(THIS_MODULE);
 
-			MOD_DEC_USE_COUNT;
-
-			for (i=0; i< MAX_MTD_DEVICES; i++)
-				if (mtd_table[i])
-					old->remove(mtd_table[i]);
+	for (i=0; i< MAX_MTD_DEVICES; i++)
+		if (mtd_table[i])
+			old->remove(mtd_table[i]);
 			
-			up(&mtd_table_mutex);
-			return 0;
-		}
-		prev = &cur->next;
-	}
+	list_del(&old->list);
 	up(&mtd_table_mutex);
-	return 1;
+	return 0;
 }
 
 
 /**
- *	__get_mtd_device - obtain a validated handle for an MTD device
+ *	get_mtd_device - obtain a validated handle for an MTD device
  *	@mtd: last known address of the required MTD device
  *	@num: internal device number of the required MTD device
  *
@@ -177,11 +185,10 @@ int unregister_mtd_user (struct mtd_notifier *old)
  *	table, if any.	Given an address and num == -1, search the device table
  *	for a device with that address and return if it's still present. Given
  *	both, return the num'th driver only if its address matches. Return NULL
- *	if not. get_mtd_device() increases the use count, but
- *	__get_mtd_device() doesn't - you should generally use get_mtd_device().
+ *	if not.
  */
 	
-struct mtd_info *__get_mtd_device(struct mtd_info *mtd, int num)
+struct mtd_info *get_mtd_device(struct mtd_info *mtd, int num)
 {
 	struct mtd_info *ret = NULL;
 	int i;
@@ -197,11 +204,28 @@ struct mtd_info *__get_mtd_device(struct mtd_info *mtd, int num)
 		if (mtd && mtd != ret)
 			ret = NULL;
 	}
-	
+
+	if (ret && !try_module_get(ret->owner))
+		ret = NULL;
+
+	if (ret)
+		ret->usecount++;
+
 	up(&mtd_table_mutex);
 	return ret;
 }
 
+void put_mtd_device(struct mtd_info *mtd)
+{
+	int c;
+
+	down(&mtd_table_mutex);
+	c = --mtd->usecount;
+	up(&mtd_table_mutex);
+	BUG_ON(c < 0);
+
+	module_put(mtd->owner);
+}
 
 /* default_mtd_writev - default mtd writev method for MTD devices that
  *			dont implement their own
@@ -265,7 +289,8 @@ int default_mtd_readv(struct mtd_info *mtd, struct iovec *vecs,
 
 EXPORT_SYMBOL(add_mtd_device);
 EXPORT_SYMBOL(del_mtd_device);
-EXPORT_SYMBOL(__get_mtd_device);
+EXPORT_SYMBOL(get_mtd_device);
+EXPORT_SYMBOL(put_mtd_device);
 EXPORT_SYMBOL(register_mtd_user);
 EXPORT_SYMBOL(unregister_mtd_user);
 EXPORT_SYMBOL(default_mtd_writev);

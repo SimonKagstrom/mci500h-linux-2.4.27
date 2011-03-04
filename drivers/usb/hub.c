@@ -16,6 +16,8 @@
 #include <linux/list.h>
 #include <linux/slab.h>
 #include <linux/smp_lock.h>
+
+
 #ifdef CONFIG_USB_DEBUG
 	#define DEBUG
 #else
@@ -29,6 +31,10 @@
 #include <asm/byteorder.h>
 
 #include "hub.h"
+
+extern void usb_set_vbus_on (void);
+extern void usb_set_vbus_off (void);
+
 
 /* Wakes up khubd */
 static spinlock_t hub_event_lock = SPIN_LOCK_UNLOCKED;
@@ -595,6 +601,8 @@ static int usb_hub_port_reset(struct usb_device *hub, int port,
 {
 	int i, status;
 
+	/* always set the reset timer as 250 ms fix for iPod shuffle g2*/
+	delay = 250;//HUB_LONG_RESET_TIME + (HUB_LONG_RESET_TIME/2);//*= 10;
 	/* Reset the port */
 	for (i = 0; i < HUB_RESET_TRIES; i++) {
 		usb_set_port_feature(hub, port + 1, USB_PORT_FEAT_RESET);
@@ -608,7 +616,9 @@ static int usb_hub_port_reset(struct usb_device *hub, int port,
 
 		dbg("port %d of hub %d not enabled, trying reset again...",
 			port + 1, hub->devnum);
-		delay = HUB_LONG_RESET_TIME;
+
+		/* always set the reset timer as 400 ms fix for iPod shuffle g2*/
+		delay = HUB_LONG_RESET_TIME*2;
 	}
 
 	err("Cannot enable port %i of hub %d, disabling port.",
@@ -642,7 +652,7 @@ void usb_hub_port_disable(struct usb_device *hub, int port)
  * every 100ms for transient disconnects to restart the delay.
  */
 
-#define HUB_DEBOUNCE_TIMEOUT	400
+#define HUB_DEBOUNCE_TIMEOUT	1800
 #define HUB_DEBOUNCE_STEP	100
 
 /* return: -1 on error, 0 on success, 1 on disconnect.  */
@@ -676,7 +686,7 @@ static void usb_hub_port_connect_change(struct usb_hub *hubstate, int port,
 {
 	struct usb_device *hub = hubstate->dev;
 	struct usb_device *dev;
-	unsigned int delay = HUB_SHORT_RESET_TIME;
+	unsigned int delay = HUB_LONG_RESET_TIME;//HUB_SHORT_RESET_TIME;
 	int i;
 
 	dbg("port %d, portstatus %x, change %x, %s",
@@ -768,14 +778,25 @@ static void usb_hub_port_connect_change(struct usb_hub *hubstate, int port,
 		usb_free_dev(dev);
 
 		/* Switch to a long reset time */
-		delay = HUB_LONG_RESET_TIME;
+		delay = 2*HUB_LONG_RESET_TIME;
 	}
 
+
+	/* reset bus by disable power and enable power for iPod shuffle g2 */
 	usb_hub_port_disable(hub, port);
+	up(&usb_address0_sem);
+	warn("USB: h/w reset.");
+	usb_set_vbus_off();
+	wait_ms(1000);
+	usb_set_vbus_on();
+	//	wait_ms(0);
+	return;
+
 done:
 	up(&usb_address0_sem);
 }
-
+extern volatile int iPodShuffle;
+extern volatile int iPodShuffleOp;
 static void usb_hub_events(void)
 {
 	unsigned long flags;
@@ -795,6 +816,11 @@ static void usb_hub_events(void)
 	 * safe since we delete the hub from the event list.
 	 * Not the most efficient, but avoids deadlocks.
 	 */
+	iPodShuffle = 0;
+	while(iPodShuffleOp == 1)
+	{
+		wait_ms(10);
+	}
 	while (1) {
 		spin_lock_irqsave(&hub_event_lock, flags);
 

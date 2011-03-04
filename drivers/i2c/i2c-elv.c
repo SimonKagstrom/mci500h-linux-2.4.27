@@ -75,7 +75,7 @@ static void bit_elv_setsda(void *data, int state)
 		PortData |=2;
 	}
 	outb(PortData, DATA);
-} 
+}
 
 static int bit_elv_getscl(void *data)
 {
@@ -90,7 +90,7 @@ static int bit_elv_getsda(void *data)
 static int bit_elv_init(void)
 {
 	if (check_region(base,(base == 0x3bc)? 3 : 8) < 0 ) {
-		return -ENODEV;	
+		return -ENODEV;
 	} else {
 						/* test for ELV adap. 	*/
 		if (inb(base+1) & 0x80) {	/* BUSY should be high	*/
@@ -131,16 +131,12 @@ static int bit_elv_unreg(struct i2c_client *client)
 
 static void bit_elv_inc_use(struct i2c_adapter *adap)
 {
-#ifdef MODULE
 	MOD_INC_USE_COUNT;
-#endif
 }
 
 static void bit_elv_dec_use(struct i2c_adapter *adap)
 {
-#ifdef MODULE
 	MOD_DEC_USE_COUNT;
-#endif
 }
 
 /* ------------------------------------------------------------------------
@@ -164,10 +160,10 @@ static struct i2c_adapter bit_elv_ops = {
 	bit_elv_inc_use,
 	bit_elv_dec_use,
 	bit_elv_reg,
-	bit_elv_unreg,	
+	bit_elv_unreg,
 };
 
-int __init i2c_bitelv_init(void)
+static int __init i2c_bitelv_init(void)
 {
 	printk(KERN_INFO "i2c-elv.o: i2c ELV parallel port adapter module version %s (%s)\n", I2C_VERSION, I2C_DATE);
 	if (base==0) {
@@ -194,24 +190,19 @@ int __init i2c_bitelv_init(void)
 }
 
 
+static void __exit i2c_bitelv_exit(void)
+{
+	i2c_bit_del_bus(&bit_elv_ops);
+	bit_elv_exit();
+}
+
 EXPORT_NO_SYMBOLS;
 
-#ifdef MODULE
 MODULE_AUTHOR("Simon G. Vogl <simon@tk.uni-linz.ac.at>");
 MODULE_DESCRIPTION("I2C-Bus adapter routines for ELV parallel port adapter");
 MODULE_LICENSE("GPL");
 
 MODULE_PARM(base, "i");
 
-int init_module(void)
-{
-	return i2c_bitelv_init();
-}
-
-void cleanup_module(void)
-{
-	i2c_bit_del_bus(&bit_elv_ops);
-	bit_elv_exit();
-}
-
-#endif
+module_init(i2c_bitelv_init);
+module_exit(i2c_bitelv_exit);

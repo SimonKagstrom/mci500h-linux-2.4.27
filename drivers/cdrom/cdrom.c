@@ -246,8 +246,8 @@
 #define CD_DVD		0x80
 
 /* Define this to remove _all_ the debugging messages */
-/* #define ERRLOGMASK CD_NOTHING */
-#define ERRLOGMASK (CD_WARNING)
+#define ERRLOGMASK CD_NOTHING
+/* #define ERRLOGMASK (CD_WARNING) */
 /* #define ERRLOGMASK (CD_WARNING|CD_OPEN|CD_COUNT_TRACKS|CD_CLOSE) */
 /* #define ERRLOGMASK (CD_WARNING|CD_REG_UNREG|CD_DO_IOCTL|CD_OPEN|CD_CLOSE|CD_COUNT_TRACKS) */
 
@@ -711,7 +711,7 @@ static int cdrom_read_mech_status(struct cdrom_device_info *cdi,
 
 static int cdrom_slot_status(struct cdrom_device_info *cdi, int slot)
 {
-	struct cdrom_changer_info info;
+	static struct cdrom_changer_info info;
 	int ret;
 
 	cdinfo(CD_CHANGER, "entering cdrom_slot_status()\n"); 
@@ -735,7 +735,7 @@ int cdrom_number_of_slots(struct cdrom_device_info *cdi)
 {
 	int status;
 	int nslots = 1;
-	struct cdrom_changer_info info;
+	static struct cdrom_changer_info info;
 
 	cdinfo(CD_CHANGER, "entering cdrom_number_of_slots()\n"); 
 	/* cdrom_read_mech_status requires a valid value for capacity: */
@@ -778,7 +778,7 @@ static int cdrom_load_unload(struct cdrom_device_info *cdi, int slot)
 
 int cdrom_select_disc(struct cdrom_device_info *cdi, int slot)
 {
-	struct cdrom_changer_info info;
+	static struct cdrom_changer_info info;
 	int curslot;
 	int ret;
 
@@ -1259,7 +1259,7 @@ static int dvd_read_bca(struct cdrom_device_info *cdi, dvd_struct *s)
 	init_cdrom_command(&cgc, buf, sizeof(buf), CGC_DATA_READ);
 	cgc.cmd[0] = GPCMD_READ_DVD_STRUCTURE;
 	cgc.cmd[7] = s->type;
-	cgc.cmd[9] = cgc.buflen = 0xff;
+	cgc.cmd[9] = cgc.buflen & 0xff;
 
 	if ((ret = cdo->generic_packet(cdi, &cgc)))
 		return ret;
@@ -1442,17 +1442,32 @@ static int cdrom_read_block(struct cdrom_device_info *cdi,
 	cgc->cmd[6] = (nblocks >> 16) & 0xff;
 	cgc->cmd[7] = (nblocks >>  8) & 0xff;
 	cgc->cmd[8] = nblocks & 0xff;
-	cgc->buflen = blksize * nblocks;
+	//cgc->buflen = blksize * nblocks;
 	
 	/* set the header info returned */
 	switch (blksize) {
 	case CD_FRAMESIZE_RAW0	: cgc->cmd[9] = 0x58; break;
 	case CD_FRAMESIZE_RAW1	: cgc->cmd[9] = 0x78; break;
 	case CD_FRAMESIZE_RAW	: cgc->cmd[9] = 0xf8; break;
+	case CD_FRAMESIZE_RAWER	: cgc->cmd[9] = 0x10; break; //lcc
+	case CD_FRAMESIZE_SubQ	: cgc->cmd[9] = 0x10; break; //lcc
+
 	default			: cgc->cmd[9] = 0x10;
 	}
-	
-	return cdo->generic_packet(cdi, cgc);
+
+   //lcc,enable the Q sub-channel selection
+   cgc->cmd[10] = 0x02; // FIXME: for now no subq
+
+   if(cgc->cmd[10] == 0x02)
+   {
+     	cgc->buflen = CD_FRAMESIZE_SubQ * nblocks;
+   }
+   else if((cgc->cmd[10] == 0x01) || (cgc->cmd[10] == 0x04))
+   {
+     	cgc->buflen = CD_FRAMESIZE_SubPW * nblocks;
+   }
+
+   return cdo->generic_packet(cdi, cgc);
 }
 
 /* Just about every imaginable ioctl is supported in the Uniform layer
@@ -1524,7 +1539,7 @@ int cdrom_ioctl(struct inode *ip, struct file *fp, unsigned int cmd,
 		}
 
 	case CDROM_MEDIA_CHANGED: {
-		struct cdrom_changer_info info;
+		static struct cdrom_changer_info info;
 
 		cdinfo(CD_DO_IOCTL, "entering CDROM_MEDIA_CHANGED\n"); 
 		if (!CDROM_CAN(CDC_MEDIA_CHANGED))
@@ -2008,7 +2023,7 @@ static int mmc_ioctl(struct cdrom_device_info *cdi, unsigned int cmd,
 		 */
 		nr = ra.nframes;
 		do {
-			cgc.buffer = kmalloc(CD_FRAMESIZE_RAW * nr, GFP_KERNEL);
+			cgc.buffer = kmalloc(CD_FRAMESIZE_RAWER * nr, GFP_KERNEL); //lcc 
 			if (cgc.buffer)
 				break;
 
@@ -2018,7 +2033,7 @@ static int mmc_ioctl(struct cdrom_device_info *cdi, unsigned int cmd,
 		if (!nr)
 			return -ENOMEM;
 
-		if (!access_ok(VERIFY_WRITE, ra.buf, ra.nframes*CD_FRAMESIZE_RAW)) {
+      if (!access_ok(VERIFY_WRITE, ra.buf, ra.nframes*CD_FRAMESIZE_RAWER)) { //lcc, CD_FRAMESIZE_RAW
 			kfree(cgc.buffer);
 			return -EFAULT;
 		}
@@ -2027,11 +2042,16 @@ static int mmc_ioctl(struct cdrom_device_info *cdi, unsigned int cmd,
 			if (nr > ra.nframes)
 				nr = ra.nframes;
 
-			ret = cdrom_read_block(cdi, &cgc, lba, nr, 1, CD_FRAMESIZE_RAW);
+  			ret = cdrom_read_block(cdi, &cgc, lba, nr, 1, CD_FRAMESIZE_RAWER); //lcc, CD_FRAMESIZE_RAW
 			if (ret)
 				break;
-			__copy_to_user(ra.buf, cgc.buffer, CD_FRAMESIZE_RAW*nr);
-			ra.buf += CD_FRAMESIZE_RAW * nr;
+
+         //lcc
+			//__copy_to_user(ra.buf, cgc.buffer, CD_FRAMESIZE_RAW*nr);
+			//ra.buf += CD_FRAMESIZE_RAW * nr;
+			__copy_to_user(ra.buf, cgc.buffer, cgc.buflen);
+			ra.buf += cgc.buflen;
+
 			ra.nframes -= nr;
 			lba += nr;
 		}

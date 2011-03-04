@@ -1166,6 +1166,17 @@ fini:
 	return PAGE_SIZE - left;
 }
 
+#if defined (CONFIG_DEBUG_PANIC_POSTMORTEM)
+void show_module_symbols (void)
+{
+	struct module *mod;
+
+	for (mod = module_list; mod != &kernel_module; mod = mod->next)
+		printk ("module:%s, symbol:%s, addr:0x%08x\n",
+			mod->name, mod->syms->name, mod->syms->value);
+}
+#endif
+
 /*
  * Called by the /proc file system to return a current list of ksyms.
  */

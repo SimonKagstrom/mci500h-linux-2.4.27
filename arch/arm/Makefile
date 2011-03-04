@@ -16,7 +16,7 @@ ifeq ($(CONFIG_FRAME_POINTER),y)
 CFLAGS		:=$(CFLAGS:-fomit-frame-pointer=-mapcs -mno-sched-prolog)
 endif
 
-CFLAGS		:=$(CFLAGS:-O2=-Os)
+CFLAGS		:=$(CFLAGS:-O2=-O1)
 
 ifeq ($(CONFIG_DEBUG_INFO),y)
 CFLAGS		+=-g
@@ -52,7 +52,7 @@ tune-$(CONFIG_CPU_SA1100)	:=-mtune=strongarm1100
 
 CFLAGS_BOOT	:=$(apcs-y) $(arch-y) $(tune-y) -mshort-load-bytes -msoft-float -Uarm
 CFLAGS		+=$(apcs-y) $(arch-y) $(tune-y) -mshort-load-bytes -msoft-float -Uarm
-AFLAGS		+=$(apcs-y) $(arch-y) -mno-fpu -msoft-float
+AFLAGS		+=$(apcs-y) $(arch-y) -msoft-float
 
 ifeq ($(CONFIG_CPU_26),y)
 PROCESSOR	:= armo
@@ -164,6 +164,14 @@ ifeq ($(CONFIG_ARCH_OMAHA),y)
 MACHINE                = omaha
 endif
 
+ifeq ($(CONFIG_ARCH_SSA),y)
+MACHINE          = ssa
+endif
+
+ifeq ($(CONFIG_ARCH_PNX0106),y)
+MACHINE          = pnx0106
+endif
+
 export	MACHINE PROCESSOR TEXTADDR GZFLAGS CFLAGS_BOOT OBJCOPYFLAGS
 
 # Only set INCDIR if its not already defined above
@@ -202,7 +210,7 @@ LIBS		:=arch/arm/fastfpe/fast-math-emu.o $(LIBS)
 endif
 endif
 
-ifeq ($(findstring y,$(CONFIG_USB_OHCI_SA1111) $(CONFIG_USB_OHCI_AT91)),y)
+ifeq ($(findstring y,$(CONFIG_USB_OHCI_SA1111) $(CONFIG_USB_OHCI_AT91) $(CONFIG_USB_EHCI_PNX0106)),y)
    SUBDIRS	+=arch/arm/common
    CORE_FILES	+=arch/arm/common/nopci.o
 endif

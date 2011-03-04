@@ -60,7 +60,7 @@ static int verify_stack(unsigned long sp)
 /*
  * Dump out the contents of some memory nicely...
  */
-static void dump_mem(const char *str, unsigned long bottom, unsigned long top)
+void dump_mem (const char *str, unsigned long bottom, unsigned long top)
 {
 	unsigned long p = bottom & ~31;
 	mm_segment_t fs;
@@ -77,7 +77,7 @@ static void dump_mem(const char *str, unsigned long bottom, unsigned long top)
 	printk("%s(0x%08lx to 0x%08lx)\n", str, bottom, top);
 
 	for (p = bottom & ~31; p < top;) {
-		printk("%04lx: ", p & 0xffff);
+		printk("%08lx: ", p);
 
 		for (i = 0; i < 8; i++, p += 4) {
 			unsigned int val;
@@ -93,6 +93,48 @@ static void dump_mem(const char *str, unsigned long bottom, unsigned long top)
 	}
 
 	set_fs(fs);
+}
+
+/*
+ * Dump out the contents of some memory nicely...
+ * The original dump_mem() function prints only zero's when used to
+ * display the vector table and expection stubs from bad_mode().
+ * The hacked version below seems to work (haven't really investigated why...).
+ */
+static void dump_mem_bad_mode (const char *str, unsigned long bottom, unsigned long top)
+{
+	unsigned long p = bottom & ~31;
+//	mm_segment_t fs;
+	int i;
+
+	/*
+	 * We need to switch to kernel mode so that we can use __get_user
+	 * to safely read from kernel space.  Note that we now dump the
+	 * code first, just in case the backtrace kills us.
+	 */
+//	fs = get_fs();
+//	set_fs(KERNEL_DS);
+
+	printk("%s(0x%08lx to 0x%08lx)\n", str, bottom, top);
+
+	for (p = bottom & ~31; p < top;) {
+		printk("%08lx: ", p);
+
+		for (i = 0; i < 8; i++, p += 4) {
+			unsigned int val;
+
+			if (p < bottom || p >= top)
+				printk("         ");
+			else {
+//				__get_user(val, (unsigned long *)p);
+				val = *((unsigned int *) p);
+				printk("%08x ", val);
+			}
+		}
+		printk ("\n");
+	}
+
+//	set_fs(fs);
 }
 
 static void dump_instr(struct pt_regs *regs)
@@ -134,7 +176,12 @@ static void dump_instr(struct pt_regs *regs)
 
 static void I_really_mean_dump_stack_so_dont_mess_with_me(struct task_struct *tsk, unsigned long sp)
 {
-	dump_mem("Stack: ", sp, 8192+(unsigned long)tsk);
+#if 1
+	dump_mem("Stack: ", sp, 8192+(unsigned long)tsk);	/* current sp upwards to origin of stack */
+//	dump_mem("Below stack: ", (unsigned long)tsk, sp);	/* base of tsk upwards to current sp */ 	 
+#else
+	dump_mem("tsk+Stack: ", (unsigned long)tsk, 8192+(unsigned long)tsk);
+#endif
 }
 
 static void dump_backtrace(struct pt_regs *regs, struct task_struct *tsk)
@@ -200,6 +247,11 @@ NORET_TYPE void die(const char *str, struct pt_regs *regs, int err)
 	}
 
 	spin_unlock_irq(&die_lock);
+
+#if defined (CONFIG_ARCH_PNX0106)			/* fixme... this should be platform configurable... */
+	panic ("%s: Forcing panic...", __FUNCTION__);	/* fixme... this should be more flexible... */
+#endif
+
 	do_exit(SIGSEGV);
 }
 
@@ -294,8 +346,8 @@ asmlinkage void bad_mode(struct pt_regs *regs, int reason, int proc_mode)
 	 * Dump out the vectors and stub routines.  Maybe a better solution
 	 * would be to dump them out only if we detect that they are corrupted.
 	 */
-	dump_mem(KERN_CRIT "Vectors: ", vectors, vectors + 0x40);
-	dump_mem(KERN_CRIT "Stubs: ", vectors + 0x200, vectors + 0x4b8);
+	dump_mem_bad_mode (KERN_CRIT "Vectors: ", vectors, vectors + 0x40);
+	dump_mem_bad_mode (KERN_CRIT "Stubs: ", vectors + 0x200, vectors + 0x4b8);
 
 	die("Oops", regs, 0);
 	local_irq_disable();

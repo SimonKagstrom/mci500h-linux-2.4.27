@@ -4,9 +4,9 @@
  *  Copyright (c) 2002 Thomas Gleixner <tgxl@linutronix.de>
  *
  *  Derived from drivers/mtd/spia.c
- * 	 Copyright (C) 2000 Steven J. Hill (sjhill@cotw.com)
+ * 	 Copyright (C) 2000 Steven J. Hill (sjhill@realitydiluted.com)
  * 
- * $Id: autcpu12.c,v 1.6 2002/11/11 15:47:56 gleixner Exp $
+ * $Id: autcpu12.c,v 1.13 2003/07/11 15:12:29 dwmw2 Exp $
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -25,10 +25,10 @@
  *			added page_cache
  *
  *	10-06-2002 TG	128K card support added
- *
  */
 
 #include <linux/slab.h>
+#include <linux/init.h>
 #include <linux/module.h>
 #include <linux/mtd/mtd.h>
 #include <linux/mtd/nand.h>
@@ -70,6 +70,7 @@ __setup("autcpu12_pedr=",autcpu12_pedr);
 /*
  * Define partitions for flash devices
  */
+extern struct nand_oobinfo jffs2_oobinfo;
 
 static struct mtd_partition partition_info16k[] = {
 	{ name: "AUTCPU12 flash partition 1",
@@ -95,7 +96,7 @@ static struct mtd_partition partition_info64k[] = {
 	  size:   16 * SZ_1M },
 	{ name: "AUTCPU12 flash partition 2",
 	  offset: 16 * SZ_1M,
-	  size:   48 * SZ_1M},
+	  size:   48 * SZ_1M },
 };
 
 static struct mtd_partition partition_info128k[] = {
@@ -104,7 +105,7 @@ static struct mtd_partition partition_info128k[] = {
 	  size:   16 * SZ_1M },
 	{ name: "AUTCPU12 flash partition 2",
 	  offset: 16 * SZ_1M,
-	  size:   112 * SZ_1M},
+	  size:   112 * SZ_1M },
 };
 
 #define NUM_PARTITIONS16K 2
@@ -114,7 +115,7 @@ static struct mtd_partition partition_info128k[] = {
 /* 
  *	hardware specific access to control-lines
 */
-void autcpu12_hwcontrol(int cmd)
+static void autcpu12_hwcontrol(struct mtd_info *mtd, int cmd)
 {
 
 	switch(cmd){
@@ -133,7 +134,7 @@ void autcpu12_hwcontrol(int cmd)
 /*
 *	read device ready pin
 */
-int autcpu12_device_ready(void)
+int autcpu12_device_ready(struct mtd_info *mtd)
 {
 
 	return ( (*(volatile unsigned char *) (autcpu12_io_base + autcpu12_pedr)) & AUTCPU12_SMC_RDY) ? 1 : 0;
@@ -184,7 +185,7 @@ int __init autcpu12_init (void)
 	this->eccmode = NAND_ECC_SOFT;
 
 	/* Scan to find existance of the device */
-	if (nand_scan (autcpu12_mtd)) {
+	if (nand_scan (autcpu12_mtd, 1)) {
 		err = -ENXIO;
 		goto out_ior;
 	}
@@ -197,15 +198,6 @@ int __init autcpu12_init (void)
 		goto out_ior;
 	}
 
-	/* Allocate memory for internal data buffer */
-	this->data_cache = kmalloc (sizeof(u_char) * (autcpu12_mtd->oobblock + autcpu12_mtd->oobsize), GFP_KERNEL);
-	if (!this->data_cache) {
-		printk ("Unable to allocate NAND data cache for AUTCPU12.\n");
-		err = -ENOMEM;
-		goto out_buf;
-	}
-	this->cache_page = -1;
-
 	/* Register the partitions */
 	switch(autcpu12_mtd->size){
 		case SZ_16M: add_mtd_partitions(autcpu12_mtd, partition_info16k, NUM_PARTITIONS16K); break;
@@ -215,13 +207,11 @@ int __init autcpu12_init (void)
 		default: {
 			printk ("Unsupported SmartMedia device\n"); 
 			err = -ENXIO;
-			goto out_cac;
+			goto out_buf;
 		}
 	}
 	goto out;
 
-out_cac:
-	kfree (this->data_cache);    
 out_buf:
 	kfree (this->data_buf);    
 out_ior:
@@ -250,7 +240,6 @@ static void __exit autcpu12_cleanup (void)
 
 	/* Free internal data buffers */
 	kfree (this->data_buf);
-	kfree (this->data_cache);
 
 	/* unmap physical adress */
 	iounmap((void *)autcpu12_fio_base);

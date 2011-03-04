@@ -19,7 +19,17 @@ ENTRY(test_and_set_bit)
 		ldrb	r2, [r1]
 		tst	r2, r0, lsl r3
 		orr	r2, r2, r0, lsl r3
+#if defined (CONFIG_ARCH_LOST_WRITES)
+#if defined (CONFIG_CPU_DCACHE_WRITETHROUGH)
+		strb	r2, [r1]		@ Double store
 		strb	r2, [r1]
+#else
+		ldrb	r3, [r1]		@ Load before write
+		strb	r2, [r1]
+#endif
+#else
+		strb	r2, [r1]
+#endif
 		restore_irqs ip
 		moveq	r0, #0
 		RETINSTR(mov,pc,lr)

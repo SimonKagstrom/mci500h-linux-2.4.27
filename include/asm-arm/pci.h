@@ -113,6 +113,28 @@ pci_unmap_single(struct pci_dev *hwdev, dma_addr_t dma_addr, size_t size, int di
 	/* nothing to do */
 }
 
+/*
+ * pci_{map,unmap}_page maps a kernel page to a dma_addr_t. identical
+ * to pci_map_single, but takes a struct page instead of a virtual address
+ */
+static inline dma_addr_t pci_map_page(struct pci_dev *hwdev, struct page *page,
+				      unsigned long offset, size_t size,
+				      int direction)
+{
+	void *start;
+	BUG_ON(direction == PCI_DMA_NONE);
+	start = page_address(page) + offset;
+	consistent_sync(start, size, direction);
+	return virt_to_bus(start);
+}
+
+static inline void pci_unmap_page(struct pci_dev *hwdev, dma_addr_t dma_address,
+				  size_t size, int direction)
+{
+	BUG_ON(direction == PCI_DMA_NONE);
+	/* Nothing to do */
+}
+
 /* Whether pci_unmap_{single,page} is a nop depends upon the
  * configuration.
  */

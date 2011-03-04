@@ -1665,8 +1665,8 @@ void irttp_run_rx_queue(struct tsap_cb *self)
 		}
 		self->rx_sdu_size = 0;
 	}
-
-	/*
+  
+  	/*
 	 * It's not trivial to keep track of how many credits are available
 	 * by incrementing at each packet, because delivery may fail 
 	 * (irttp_do_data_indication() may requeue the frame) and because
@@ -1676,7 +1676,7 @@ void irttp_run_rx_queue(struct tsap_cb *self)
 	 * to send remote_credit.
 	 * No need to spinlock, write is atomic and self correcting...
 	 * Jean II
-	 */
+  	 */
 	self->avail_credit = (self->initial_credit -
 			      (self->remote_credit +
 			       skb_queue_len(&self->rx_queue) +
